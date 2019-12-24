@@ -11,7 +11,7 @@ import (
 
 //writeBlock sends off ttl info to dbWorker to be written to ttldb
 func writeBlock(tx []*wire.MsgTx, tipnum int,
-	batchan chan *leveldb.Batch, wg *sync.WaitGroup) error {
+	batchan chan *leveldb.Batch, wg *sync.WaitGroup, mainwg *sync.WaitGroup) {
 
 	blockBatch := new(leveldb.Batch)
 
@@ -34,7 +34,7 @@ func writeBlock(tx []*wire.MsgTx, tipnum int,
 	//sent to dbworker to be written to ttldb asynchronously
 	batchan <- blockBatch
 
-	return nil
+	mainwg.Done()
 }
 
 // dbWorker writes everything to the db. It's it's own goroutine so it

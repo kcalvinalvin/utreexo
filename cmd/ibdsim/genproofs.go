@@ -124,8 +124,9 @@ func BuildProofs(isTestnet bool, ttldb string, offsetfile string, sig chan bool)
 	var stop bool
 
 	// To send/receive blocks from blockreader()
-	bchan := make(chan simutil.BlockToWrite, 10)
+	bchan := make(chan simutil.BlockToWrite, 20)
 
+	var mainwg sync.WaitGroup
 	fmt.Println("Building Proofs and ttldb...")
 
 	// Reads block asynchronously from .dat files
@@ -135,19 +136,17 @@ func BuildProofs(isTestnet bool, ttldb string, offsetfile string, sig chan bool)
 
 		b := <-bchan
 
-		err := writeProofs(b.Txs, b.Height, pFile, pOffsetFile, newForest, totalProofNodes, &pOffset)
-		if err != nil {
-			panic(err)
-		}
+		// writeProofs() and writeBlock() happen asynchronously
+		mainwg.Add(2)
+		go writeProofs(b.Txs, b.Height, pFile, pOffsetFile, newForest, totalProofNodes, &pOffset, &mainwg)
 
-		err = writeBlock(b.Txs, b.Height+1, batchan, &batchwg)
-		if err != nil {
-			panic(err)
-		}
+		go writeBlock(b.Txs, b.Height+1, batchan, &batchwg, &mainwg)
 
 		if b.Height%10000 == 0 {
 			fmt.Println("On block :", b.Height)
 		}
+		// wait for above to goroutines to finish
+		mainwg.Wait()
 
 		// Check if stopSig is no longer false
 		// stop = true makes the loop exit
@@ -167,6 +166,12 @@ func BuildProofs(isTestnet bool, ttldb string, offsetfile string, sig chan bool)
 	// allows leveldb to close gracefully
 	batchwg.Wait()
 
+	// write to the tipfile
+	_, err = tipFile.WriteAt(simutil.U32tB(uint32(height+1)), 0)
+	if err != nil {
+		panic(err)
+	}
+
 	fmt.Println("Done writing")
 
 	// Tell stopBuildProofs that it's ok to exit
@@ -185,7 +190,8 @@ func writeProofs(
 	pOffsetFile *os.File,
 	newForest *utreexo.Forest,
 	totalProofNodes int,
-	pOffset *uint32) error {
+	pOffset *uint32,
+	mainwg *sync.WaitGroup) {
 
 	var blockAdds []utreexo.LeafTXO
 	var blockDels []utreexo.Hash
@@ -230,7 +236,7 @@ func writeProofs(
 	for _, b := range blocktxs {
 		adds, err := hashgen(b)
 		if err != nil {
-			return err
+			panic(err)
 		}
 		for _, add := range adds {
 			blockAdds = append(blockAdds, add)
@@ -246,12 +252,12 @@ func writeProofs(
 
 	blockProof, err := newForest.ProveBlock(blockDels)
 	if err != nil {
-		return fmt.Errorf("block %d %s %s", height, newForest.Stats(), err.Error())
+		panic(fmt.Errorf("block %d %s %s", height, newForest.Stats(), err.Error()))
 	}
 
 	ok := newForest.VerifyBlockProof(blockProof)
 	if !ok {
-		return fmt.Errorf("VerifyBlockProof failed at block %d", height)
+		panic(fmt.Errorf("VerifyBlockProof failed at block %d", height))
 	}
 
 	totalProofNodes += len(blockProof.Proof)
@@ -260,35 +266,35 @@ func writeProofs(
 	// Later this could also be changed to magic bytes
 	_, err = pFile.Write(utreexo.U32tB(uint32(height)))
 	if err != nil {
-		return err
+		panic(err)
 	}
 	p := blockProof.ToBytes()
 
 	// write the offset for a block
 	_, err = pOffsetFile.Write(utreexo.U32tB(*pOffset))
 	if err != nil {
-		return err
+		panic(err)
 	}
 	*pOffset += uint32(len(p)) + uint32(8) // add 8 for height bytes and load size
 	// write the size of the proof
 	_, err = pFile.Write(utreexo.U32tB(uint32(len(p))))
 	if err != nil {
-		return err
+		panic(err)
 	}
 	// Write the actual proof
 	_, err = pFile.Write(p)
 	if err != nil {
-		return err
+		panic(err)
 	}
 	_, err = newForest.Modify(blockAdds, blockProof.Targets)
 	if err != nil {
-		return err
+		panic(err)
 	}
 	// empty the blockAdds and blockDels that were written
 	blockAdds = []utreexo.LeafTXO{}
 	blockDels = []utreexo.Hash{}
 
-	return nil
+	mainwg.Done()
 }
 
 func hashgen(tx *simutil.Txotx) ([]utreexo.LeafTXO, error) {
