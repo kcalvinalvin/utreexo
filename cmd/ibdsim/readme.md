@@ -1,8 +1,13 @@
 # ibdsim
 
 This simulates initial block download (IBD) using the utreexo accumulator.
-There are 2 things it can do depending on which function is called or commented out in main(): buildProofs() or runIBD().
-In both cases, a txo file with all of the outpoints and their durations is read.  For buildProofs() a levelDB folder is created with proofs for every block.  For runIBD() that DB folder is read, and the proofs are used to simulate a utreexo node syncing process.  Important performance data about the sync process can be obtained & optimized.
+There are 2 things it can do depending on which function is called in simcmd: BuildProofs() (in genproofs.go) or RunIBD() (in ibdsim.go).
+
+In BuildProofs, two things are done asynchronously. First, the proofs are build with writeProofs(). Second, the ttl (time to live) is recording for all txos. This is used to cache transactions to save bandwidth.
+
+In RunIBD, the proofs are read and a pollard, the accumulator, is built. Currently the pollard cannot be saved to disk but that is in the works.
+
+For BuildProofs() proofs for every block is saved to proof.dat file. This file is indexed with proofoffset.dat file. For RunIBD() those two files are used, and the proofs are used to simulate a utreexo node syncing process. Important performance data about the sync process can be obtained & optimized.
 
 example output:
 Block 546000 add 854493089 del 804238642 pol nl 50254447 tops 18 he 6718011979 re 608922796 ow 2145511834
