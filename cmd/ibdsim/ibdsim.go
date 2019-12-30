@@ -171,7 +171,7 @@ func genPollard(
 			}
 		}
 
-		// done with this txotx, make the next one and append
+		// done with this Txotx, make the next one and append
 		blocktxs = append(blocktxs, new(simutil.Txotx))
 
 	}

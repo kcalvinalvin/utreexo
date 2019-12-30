@@ -1,6 +1,9 @@
 package utreexo
 
 import (
+	"bytes"
+	"encoding/binary"
+	"encoding/gob"
 	"fmt"
 	"time"
 )
@@ -438,4 +441,170 @@ func (f *Forest) ToString() string {
 		s += output[z] + "\n"
 	}
 	return s
+}
+
+// ToBytes serializes Forest to bytes.
+// TODO At the moment, the maps are serialzed using gob. Should change this later.
+// Maybe even change the maps to slices?
+func (f *Forest) ToBytes() []byte {
+	var buf bytes.Buffer
+
+	err := binary.Write(&buf, binary.BigEndian, f.numLeaves)
+	if err != nil {
+		fmt.Printf("huh %s\n", err.Error())
+		panic(err)
+	}
+
+	err = binary.Write(&buf, binary.BigEndian, f.height)
+	if err != nil {
+		fmt.Printf("huh %s\n", err.Error())
+		panic(err)
+	}
+
+	// Write the length of the slice
+	// Used for deserialization
+	forestLength := uint32(len(f.forest))
+	err = binary.Write(&buf, binary.BigEndian, forestLength)
+	if err != nil {
+		fmt.Printf("huh %s\n", err.Error())
+		panic(err)
+	}
+
+	for _, t := range f.forest {
+		err := binary.Write(&buf, binary.BigEndian, t)
+		if err != nil {
+			fmt.Printf("huh %s\n", err.Error())
+			panic(err)
+		}
+	}
+
+	// Write the length of the map
+	// Used for deserialization
+	//positionMapLength := uint32(len(f.positionMap))
+	//err = binary.Write(&buf, binary.BigEndian, positionMapLength)
+	//if err != nil {
+	//	fmt.Printf("huh %s\n", err.Error())
+	//	panic(err)
+	//}
+	//fmt.Println(positionMapLength)
+	//fmt.Println(len(buf.Bytes()))
+
+	// Maps serialzed with gob
+	// TODO change the maps to slices and/or get rid of gob
+	e := gob.NewEncoder(&buf)
+	err = e.Encode(f.positionMap)
+	if err != nil {
+		panic(err)
+	}
+	//fmt.Println(len(buf.Bytes()))
+
+	//dirtyMapLength := uint32(len(f.dirtyMap))
+	//err = binary.Write(&buf, binary.BigEndian, dirtyMapLength)
+	//if err != nil {
+	//	fmt.Printf("huh %s\n", err.Error())
+	//	panic(err)
+	//}
+	//fmt.Println(dirtyMapLength)
+	//fmt.Println(len(buf.Bytes()))
+	err = e.Encode(f.dirtyMap)
+	if err != nil {
+		panic(err)
+	}
+	//fmt.Println(len(buf.Bytes()))
+
+	return buf.Bytes()
+}
+
+// FromBytestoForest deserializes the given byte slice to Forest struct
+func (f *Forest) FromBytesToForest(b []byte) error {
+
+	buf := bytes.NewBuffer(b)
+
+	// Read numLeaves from bytes
+	var numLeaves uint64
+	err := binary.Read(buf, binary.BigEndian, &numLeaves)
+	if err != nil {
+		panic(err)
+	}
+	f.numLeaves = numLeaves
+
+	// Read height from bytes
+	var height uint8
+	err = binary.Read(buf, binary.BigEndian, &height)
+	if err != nil {
+		panic(err)
+	}
+	f.height = height
+
+	// read 4 byte number of forestLength
+	var forestLength uint32
+	err = binary.Read(buf, binary.BigEndian, &forestLength)
+	if err != nil {
+		panic(err)
+	}
+
+	f.forest = make([]Hash, forestLength)
+
+	for i := range f.forest {
+		err := binary.Read(buf, binary.BigEndian, &f.forest[i])
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	// read 4 byte number of positionMapLength
+	//var positionMapLength uint32
+	//err = binary.Read(buf, binary.BigEndian, &positionMapLength)
+	//if err != nil {
+	//	panic(err)
+	//}
+
+	//fmt.Println(positionMapLength)
+	// Prepare buffer for gob decoder
+	//positionMapByte := make([]byte, positionMapLength)
+	//err = binary.Read(buf, binary.BigEndian, &positionMapByte)
+	//if err != nil {
+	//	panic(err)
+	//}
+	//fmt.Println(positionMapByte)
+	// Buffer based on the byte slice of the input that was given
+	//positionMapBuf := bytes.NewBuffer(positionMapByte)
+	//positionMapDecoder := gob.NewDecoder(positionMapBuf)
+
+	d := gob.NewDecoder(buf)
+	decodedPositionMap := make(map[MiniHash]uint64) // decode to here
+
+	// Decoding the serialized positionMap data
+	err = d.Decode(&decodedPositionMap)
+	if err != nil {
+		panic(err)
+	}
+	f.positionMap = decodedPositionMap
+
+	// read 4 byte number of positionMapLength
+	//var dirtyMapLength uint32
+	//err = binary.Read(buf, binary.BigEndian, &dirtyMapLength)
+	//if err != nil {
+	//	panic(err)
+	//}
+
+	//dirtyMapByte := make([]byte, dirtyMapLength)
+	//err = binary.Read(buf, binary.BigEndian, &dirtyMapByte)
+	//if err != nil {
+	//	panic(err)
+	//}
+
+	// Buffer based on the byte slice of the input that was given
+	//dirtyMapBuf := bytes.NewBuffer(dirtyMapByte)
+
+	//dirtyMapDecoder := gob.NewDecoder(dirtyMapBuf)
+	var decodedDirtyMap map[uint64]bool
+
+	err = d.Decode(&decodedDirtyMap)
+	if err != nil {
+		panic(err)
+	}
+	f.dirtyMap = decodedDirtyMap
+
+	return nil
 }

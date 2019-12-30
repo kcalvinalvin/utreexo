@@ -67,14 +67,14 @@ func BuildProofs(isTestnet bool, ttldb string, offsetfile string, sig chan bool)
 		height = int(simutil.BtU32(t[:]))
 	}
 
-	//tipfile saves the last block that was written to ttldb
+	// tipfile saves the last block that was written to ttldb
 	tipFile, err := os.OpenFile("heightfile", os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		panic(err)
 	}
 
-	//grab the last block height from currentoffsetheight
-	//currentoffsetheight saves the last height from the offsetfile
+	// grab the last block height from currentoffsetheight
+	// currentoffsetheight saves the last height from the offsetfile
 	var currentOffsetHeightByte [4]byte
 	currentOffsetHeightFile, err := os.Open("currentoffsetheight")
 	if err != nil {
@@ -101,6 +101,37 @@ func BuildProofs(isTestnet bool, ttldb string, offsetfile string, sig chan bool)
 		go dbWorker(batchan, lvdb, &batchwg)
 	}
 
+	newForest := utreexo.NewForest()
+	if simutil.HasAccess("forestfile.dat") {
+
+		// Where the proofs for txs exist
+		forestFile, err := os.Open("forestfile.dat")
+		if err != nil {
+			panic(err)
+		}
+		defer forestFile.Close()
+
+		forestFileInfo, err := forestFile.Stat()
+		if err != nil {
+			panic(err)
+		}
+
+		forestFileSize := forestFileInfo.Size()
+		forestBuffer := make([]byte, forestFileSize)
+
+		_, err = forestFile.Read(forestBuffer)
+		if err != nil {
+			panic(err)
+		}
+		newForest.FromBytesToForest(forestBuffer)
+	}
+
+	forestFile, err := os.OpenFile("forestfile.dat", os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	defer forestFile.Close()
+
 	// Where the proofs for txs exist
 	pFile, err := os.OpenFile("proof.dat", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
@@ -116,7 +147,6 @@ func BuildProofs(isTestnet bool, ttldb string, offsetfile string, sig chan bool)
 	}
 	defer pOffsetFile.Close()
 
-	newForest := utreexo.NewForest()
 	var totalProofNodes int
 	var pOffset uint32
 
@@ -162,15 +192,15 @@ func BuildProofs(isTestnet bool, ttldb string, offsetfile string, sig chan bool)
 		panic(err)
 	}
 
-	// wait until dbWorker() has written to the ttldb file
-	// allows leveldb to close gracefully
-	batchwg.Wait()
-
-	// write to the tipfile
-	_, err = tipFile.WriteAt(simutil.U32tB(uint32(height+1)), 0)
+	fbytes := newForest.ToBytes()
+	_, err = forestFile.WriteAt(fbytes, 0)
 	if err != nil {
 		panic(err)
 	}
+
+	// wait until dbWorker() has written to the ttldb file
+	// allows leveldb to close gracefully
+	batchwg.Wait()
 
 	fmt.Println("Done writing")
 
@@ -225,7 +255,7 @@ func writeProofs(
 				blocktxs[len(blocktxs)-1].Outputtxid = txhash.String()
 			}
 		}
-		// done with this txotx, make the next one and append
+		// done with this Txotx, make the next one and append
 		blocktxs = append(blocktxs, new(simutil.Txotx))
 
 	}

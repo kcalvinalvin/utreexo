@@ -7,17 +7,6 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
-type txotx struct {
-	//txid of the tx
-	outputtxid string
-
-	//Whether the output is an OP_RETURN or not
-	unspendable []bool
-
-	//When the output is spent
-	deathHeights []uint32
-}
-
 type deathInfo struct {
 	deathHeight, blockPos, txPos uint32
 }
