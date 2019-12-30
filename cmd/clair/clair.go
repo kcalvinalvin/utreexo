@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/binary"
 	"fmt"
@@ -80,7 +79,7 @@ func main() {
 
 }
 
-func clairvoy() error {
+func Clairvoy() error {
 	txofile, err := os.OpenFile("ttl.mainnet.txos", os.O_RDONLY, 0600)
 	if err != nil {
 		return err
@@ -109,9 +108,6 @@ func clairvoy() error {
 	defer txofile.Close()
 	// defer scheduleFile.Close()
 
-	scanner := bufio.NewScanner(txofile)
-	scanner.Buffer(make([]byte, 1<<20), 1<<20) // 1MB should be enough?
-
 	var sortTime time.Duration
 	startTime := time.Now()
 	if len(os.Args) < 2 {
@@ -128,109 +124,131 @@ func clairvoy() error {
 
 	var utxoCounter uint32
 	var height uint32
-	height = 1
 	// _, err = indexFile.WriteAt(U32tB(0), 0) // first 0 bytes because blocks start at 1
 	// if err != nil {
 	// 	return err
 	// }
 
-	for scanner.Scan() {
-		switch scanner.Text()[0] {
-		case '-':
-			// do nothing?
-		case '+':
+	// Reads block asynchronously from .dat files
+	go simutil.BlockReader(bchan, currentOffsetHeight, height, offsetfile)
 
-			endHeights, err := plusLine(scanner.Text())
-			if err != nil {
-				return err
+	for ; height != currentOffsetHeight && stop != true; height++ {
+
+		b := <-bchan
+
+		err = genPollard(b.Txs, b.Height, &totalTXOAdded,
+			lookahead, &totalDels, plustime, pFile, pOffsetFile, lvdb, &p)
+		if err != nil {
+			panic(err)
+		}
+
+		height++
+		if height%1000 == 0 {
+			fmt.Printf("all %.2f sort %.2f ",
+				time.Now().Sub(startTime).Seconds(),
+				sortTime.Seconds())
+			fmt.Printf("h %d txo %d clairSlice %d ",
+				height, utxoCounter, len(clairSlice))
+			if len(clairSlice) > 0 {
+				fmt.Printf("first %d:%d last %d:%d\n",
+					clairSlice[0].txoIdx,
+					clairSlice[0].end,
+					clairSlice[len(clairSlice)-1].txoIdx,
+					clairSlice[len(clairSlice)-1].end)
+			} else {
+				fmt.Printf("\n")
 			}
-			for _, eh := range endHeights {
-				if eh != 0 {
-					var nxo txoEnd
-					nxo.txoIdx = utxoCounter
-					utxoCounter++
-					nxo.end = height + eh
-					blockEnds = append(blockEnds, nxo)
-				}
+		}
+		//if height%10000 == 0 {
+		//	fmt.Printf("Block %d %s plus %.2f total %.2f proofnodes %d \n",
+		//		height, newForest.Stats(),
+		//		plustime.Seconds(), time.Now().Sub(starttime).Seconds(),
+		//		totalProofNodes)
+		//}
+
+		/*
+			if height%100000 == 0 {
+				fmt.Printf(MemStatString(fname))
 			}
+		*/
 
-		case 'h':
+		//Check if stopSig is no longer false
+		//stop = true makes the loop exit
+		select {
+		case stop = <-stopGoing:
+		default:
+		}
+	}
 
-			// txosThisBlock := uint32(len(blockEnds))
+	endHeights, err := plusLine(scanner.Text())
+	if err != nil {
+		return err
+	}
+	for _, eh := range endHeights {
+		if eh != 0 {
+			var nxo txoEnd
+			nxo.txoIdx = utxoCounter
+			utxoCounter++
+			nxo.end = height + eh
+			blockEnds = append(blockEnds, nxo)
+		}
+	}
 
-			// append & sort
-			sortStart := time.Now()
-			// presort the smaller slice
-			sort.Sort(blockEnds)
-			// merge sorted
-			clairSlice = mergeSortedSlices(clairSlice, blockEnds)
-			sortTime += time.Now().Sub(sortStart)
+	//		case 'h':
 
-			// clear blockEnds
-			blockEnds = sortableTxoSlice{}
+	// txosThisBlock := uint32(len(blockEnds))
 
-			// chop off the beginning: that's the stuff that's memorable
-			preLen := len(clairSlice)
-			remembers, clairSlice = SplitAfter(clairSlice, height)
-			postLen := len(clairSlice)
-			if preLen != len(remembers)+postLen {
-				return fmt.Errorf("h %d preLen %d remembers %d postlen %d\n",
-					height, preLen, len(remembers), postLen)
-			}
+	// append & sort
+	sortStart := time.Now()
+	// presort the smaller slice
+	sort.Sort(blockEnds)
+	// merge sorted
+	clairSlice = mergeSortedSlices(clairSlice, blockEnds)
+	sortTime += time.Now().Sub(sortStart)
 
-			// chop off the end, that's stuff that is forgettable
-			if len(clairSlice) > maxmem {
-				//				forgets := clairSlice[maxmem:]
-				// fmt.Printf("\tblock %d forget %d\n",
-				// height, len(clairSlice)-maxmem)
-				clairSlice = clairSlice[:maxmem]
+	// clear blockEnds
+	blockEnds = sortableTxoSlice{}
 
-				//				for _, f := range forgets {
-				//					fmt.Printf("%d ", f.txoIdx)
-				//				}
-				//				fmt.Printf("\n")
-			}
+	// chop off the beginning: that's the stuff that's memorable
+	preLen := len(clairSlice)
+	remembers, clairSlice = SplitAfter(clairSlice, height)
+	postLen := len(clairSlice)
+	if preLen != len(remembers)+postLen {
+		return fmt.Errorf("h %d preLen %d remembers %d postlen %d\n",
+			height, preLen, len(remembers), postLen)
+	}
 
-			// expand index file and schedule file (with lots of 0s)
-			// _, err := indexFile.WriteAt(
-			// 	U32tB(utxoCounter-txosThisBlock), int64(height)*4)
+	// chop off the end, that's stuff that is forgettable
+	if len(clairSlice) > maxmem {
+		//				forgets := clairSlice[maxmem:]
+		// fmt.Printf("\tblock %d forget %d\n",
+		// height, len(clairSlice)-maxmem)
+		clairSlice = clairSlice[:maxmem]
+
+		//				for _, f := range forgets {
+		//					fmt.Printf("%d ", f.txoIdx)
+		//				}
+		//				fmt.Printf("\n")
+	}
+
+	// expand index file and schedule file (with lots of 0s)
+	// _, err := indexFile.WriteAt(
+	// 	U32tB(utxoCounter-txosThisBlock), int64(height)*4)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// writing remembers is trickier; check in
+	if len(remembers) > 0 {
+		for _, r := range remembers {
+			assertBitInRam(r.txoIdx, scheduleSlice)
+			// err = assertBitInFile(r.txoIdx, scheduleFile)
 			// if err != nil {
+			// 	fmt.Printf("assertBitInFile error\n")
 			// 	return err
 			// }
-
-			// writing remembers is trickier; check in
-			if len(remembers) > 0 {
-				for _, r := range remembers {
-					assertBitInRam(r.txoIdx, scheduleSlice)
-					// err = assertBitInFile(r.txoIdx, scheduleFile)
-					// if err != nil {
-					// 	fmt.Printf("assertBitInFile error\n")
-					// 	return err
-					// }
-				}
-
-			}
-
-			height++
-			if height%1000 == 0 {
-				fmt.Printf("all %.2f sort %.2f ",
-					time.Now().Sub(startTime).Seconds(),
-					sortTime.Seconds())
-				fmt.Printf("h %d txo %d clairSlice %d ",
-					height, utxoCounter, len(clairSlice))
-				if len(clairSlice) > 0 {
-					fmt.Printf("first %d:%d last %d:%d\n",
-						clairSlice[0].txoIdx,
-						clairSlice[0].end,
-						clairSlice[len(clairSlice)-1].txoIdx,
-						clairSlice[len(clairSlice)-1].end)
-				} else {
-					fmt.Printf("\n")
-				}
-			}
-		default:
-			panic("unknown string")
 		}
+
 	}
 
 	// return nil
@@ -326,6 +344,114 @@ func plusLine(s string) ([]uint32, error) {
 	return ends, nil
 }
 
+//Here we write proofs for all the txs.
+//All the inputs are saved as 32byte sha256 hashes.
+//All the outputs are saved as LeafTXO type.
+func genPollard(
+	tx []*wire.MsgTx,
+	height int,
+	lookahead int32,
+	totalDels *int,
+	plustime time.Duration,
+	lvdb *leveldb.DB) error {
+
+	var blockAdds []utreexo.LeafTXO
+	blocktxs := []*simutil.Txotx{new(simutil.Txotx)}
+	plusstart := time.Now()
+
+	for _, tx := range tx {
+		//creates all txos up to index indicated
+		txhash := tx.TxHash()
+		//fmt.Println(txhash.String())
+		numoutputs := uint32(len(tx.TxOut))
+
+		blocktxs[len(blocktxs)-1].Unspendable = make([]bool, numoutputs)
+		//Adds z and index for all OP_RETURN transactions
+		//We don't keep track of the OP_RETURNS so probably can get rid of this
+		for i, out := range tx.TxOut {
+			if simutil.IsUnspendable(out) {
+				// Skip all the unspendables
+				blocktxs[len(blocktxs)-1].Unspendable[i] = true
+			} else {
+				//txid := tx.TxHash().String()
+				blocktxs[len(blocktxs)-1].Outputtxid = txhash.String()
+				blocktxs[len(blocktxs)-1].DeathHeights = make([]uint32, numoutputs)
+			}
+		}
+
+		// done with this Txotx, make the next one and append
+		blocktxs = append(blocktxs, new(simutil.Txotx))
+
+	}
+	//TODO Get rid of this. This eats up cpu
+	//we started a tx but shouldn't have
+	blocktxs = blocktxs[:len(blocktxs)-1]
+	// call function to make all the db lookups and find deathheights
+	lookupBlock(blocktxs, lvdb)
+
+	for _, blocktx := range blocktxs {
+		adds, err := genLeafTXO(blocktx, uint32(height+1))
+		if err != nil {
+			return err
+		}
+		for _, a := range adds {
+
+			if a.Duration == 0 {
+				continue
+			}
+			//fmt.Println("lookahead: ", lookahead)
+			a.Remember = a.Duration < lookahead
+			//fmt.Println("Remember", a.Remember)
+
+			*totalTXOAdded++
+
+			blockAdds = append(blockAdds, a)
+			//fmt.Println("adds:", blockAdds)
+		}
+	}
+	donetime := time.Now()
+	plustime += donetime.Sub(plusstart)
+	bpBytes, err := getProof(uint32(height), pFile, pOffsetFile)
+	if err != nil {
+		return err
+	}
+	bp, err := utreexo.FromBytesBlockProof(bpBytes)
+	if err != nil {
+		return err
+	}
+	if len(bp.Targets) > 0 {
+		fmt.Printf("block proof for block %d targets: %v\n", height+1, bp.Targets)
+	}
+	err = p.IngestBlockProof(bp)
+	if err != nil {
+		return err
+	}
+
+	// totalTXOAdded += len(blockAdds)
+	*totalDels += len(bp.Targets)
+
+	err = p.Modify(blockAdds, bp.Targets)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// plusLine reads in a line of text, generates a utxo leaf, and determines
+// if this is a leaf to remember or not.
+func genTxoEndHeight(tx *simutil.Txotx, blockEnds *sortableTxoSlice) {
+	for i := 0; i < len(tx.DeathHeights); i++ {
+		if tx.Unspendable[i] == true {
+			continue
+		}
+		end := txoEnd{
+			txoIdx: utreexo.HashFromString(utxostring),
+			end:    tx.DeathHeights[i],
+		}
+		blockEnds = append(blockEnds, endData)
+	}
+}
+
 // This is copied from utreexo utils, and in this cases there will be no
 // duplicates, so that part is removed.  Uses sortableTxoSlices.
 
@@ -366,23 +492,4 @@ func mergeSortedSlices(a sortableTxoSlice, b sortableTxoSlice) (c sortableTxoSli
 		}
 	}
 	return
-}
-
-// uint32 to 4 bytes.  Always works.
-func U32tB(i uint32) []byte {
-	var buf bytes.Buffer
-	binary.Write(&buf, binary.BigEndian, i)
-	return buf.Bytes()
-}
-
-// 4 byte slice to uint32.  Returns ffffffff if something doesn't work.
-func BtU32(b []byte) uint32 {
-	if len(b) != 4 {
-		fmt.Printf("Got %x to BtU32 (%d bytes)\n", b, len(b))
-		return 0xffffffff
-	}
-	var i uint32
-	buf := bytes.NewBuffer(b)
-	binary.Read(buf, binary.BigEndian, &i)
-	return i
 }
