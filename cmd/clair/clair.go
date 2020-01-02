@@ -152,7 +152,8 @@ func Clairvoy(ttldb string, offsetfile string, mem string, sig chan bool) error 
 
 		b := <-bchan
 
-		scheduleSlice, clairSlice, remembers, err = genClair(b.Txs, uint32(b.Height), &utxoCounter, maxmem, scheduleSlice, clairSlice, remembers, lvdb)
+		scheduleSlice, clairSlice, remembers, err = genClair(b.Txs, uint32(b.Height),
+			&utxoCounter, maxmem, scheduleSlice, clairSlice, remembers, lvdb)
 		if err != nil {
 			panic(err)
 		}
