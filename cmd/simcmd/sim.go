@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/mit-dci/utreexo/cmd/clair"
 	"github.com/mit-dci/utreexo/cmd/ibdsim"
 )
 
@@ -32,7 +33,8 @@ var genhistCmd = flag.NewFlagSet("genhist", flag.ExitOnError)
 //bit of a hack. Stdandard flag lib doesn't allow flag.Parse(os.Args[2]). You need a subcommand to do so.
 var optionCmd = flag.NewFlagSet("", flag.ExitOnError)
 var testnetCmd = optionCmd.Bool("testnet", false, "Target testnet instead of mainnet. Usage: testnet=true")
-var schedFileName = optionCmd.String("schedFileName", "schedule1pos.clr", "assign a scheduled file to use. Usage: 'schedFileName=filename'")
+var schedFileName = optionCmd.String("s", "schedule1pos.clr", "assign a scheduled file to use. Usage: 's=filename'")
+var maxmem = optionCmd.String("maxmem", "3000", "Amount of memory to allocate for clair")
 var ttldb = optionCmd.String("ttldb", "ttldb", "assign a ttldb/ name to use. Usage: 'ttldb=dirname'")
 var offsetfile = optionCmd.String("offsetfile", "offsetfile", "assign a offsetfile name to use. Usage: 'offsetfile=dirname'")
 
@@ -66,6 +68,13 @@ func main() {
 		}
 	case "genhist":
 		optionCmd.Parse(os.Args[2:])
+	case "genclair":
+		optionCmd.Parse(os.Args[2:])
+		err := clair.Clairvoy(*ttldb, *offsetfile, *maxmem, sig)
+		if err != nil {
+			panic(err)
+		}
+
 	default:
 		fmt.Println(msg)
 		os.Exit(0)

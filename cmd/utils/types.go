@@ -1,8 +1,6 @@
 package simutil
 
 import (
-	"crypto/sha256"
-
 	"github.com/mit-dci/lit/wire"
 )
 
@@ -21,11 +19,6 @@ var TestNet3GenHash = Hash{
 	0x08, 0xf4, 0xa3, 0x0f, 0xd9, 0xce, 0xc3, 0xae,
 	0xba, 0x79, 0x97, 0x20, 0x84, 0xe9, 0x0e, 0xad,
 	0x01, 0xea, 0x33, 0x09, 0x00, 0x00, 0x00, 0x00,
-}
-
-//HashFromString hahes the given string with sha256
-func HashFromString(s string) Hash {
-	return sha256.Sum256([]byte(s))
 }
 
 //Struct for a tx to be converted to LeafTXOs

@@ -43,6 +43,12 @@ func RunIBD(isTestnet bool, offsetfile string, ttldb string, sig chan bool) erro
 	}
 	defer lvdb.Close()
 
+	scheduleFile, err := os.OpenFile("schedule3000pos.clr", os.O_RDONLY, 0600)
+	if err != nil {
+		return err
+	}
+	defer scheduleFile.Close()
+
 	pFile, err := os.OpenFile("proof.dat", os.O_RDONLY, 0400)
 	if err != nil {
 		return err
@@ -77,7 +83,8 @@ func RunIBD(isTestnet bool, offsetfile string, ttldb string, sig chan bool) erro
 	//	p.Minleaves = 1 << 30
 	// p.Lookahead = 1000
 
-	lookahead := int32(1000) // keep txos that last less than this many blocks
+	//lookahead := int32(1000) // keep txos that last less than this many blocks
+	var scheduleBuffer []byte
 
 	//bool for stopping the scanner.Scan loop
 	var stop bool
@@ -92,8 +99,10 @@ func RunIBD(isTestnet bool, offsetfile string, ttldb string, sig chan bool) erro
 
 		b := <-bchan
 
-		err = genPollard(b.Txs, b.Height, &totalTXOAdded,
-			lookahead, &totalDels, plustime, pFile, pOffsetFile, lvdb, &p)
+		scheduleBuffer, err = genPollard(b.Txs, b.Height, &totalTXOAdded,
+			scheduleBuffer, &totalDels, plustime, pFile, pOffsetFile, scheduleFile, lvdb, &p)
+
+		//fmt.Println("mainpostlenbuf", len(scheduleBuffer))
 		if err != nil {
 			panic(err)
 		}
@@ -138,18 +147,29 @@ func genPollard(
 	tx []*wire.MsgTx,
 	height int,
 	totalTXOAdded *int,
-	lookahead int32,
+	scheduleBuffer []byte,
 	totalDels *int,
 	plustime time.Duration,
 	pFile *os.File,
 	pOffsetFile *os.File,
+	scheduleFile *os.File,
 	lvdb *leveldb.DB,
-	p *utreexo.Pollard) error {
+	p *utreexo.Pollard) ([]byte, error) {
 
 	var blockAdds []utreexo.LeafTXO
 	blocktxs := []*simutil.Txotx{new(simutil.Txotx)}
 	plusstart := time.Now()
 
+	//fmt.Println("lenbuf", len(scheduleBuffer))
+	if len(scheduleBuffer) < 3000 {
+		nextBuf := make([]byte, 3000)
+		_, err := scheduleFile.Read(nextBuf)
+		if err != nil { // will error on EOF, deal w that
+			panic(err)
+		}
+		scheduleBuffer = append(scheduleBuffer, nextBuf...)
+		//fmt.Println("postlenbuf", len(scheduleBuffer))
+	}
 	for _, tx := range tx {
 
 		//creates all txos up to index indicated
@@ -171,7 +191,7 @@ func genPollard(
 			}
 		}
 
-		// done with this Txotx, make the next one and append
+		// done with this txotx, make the next one and append
 		blocktxs = append(blocktxs, new(simutil.Txotx))
 
 	}
@@ -179,23 +199,34 @@ func genPollard(
 	//we started a tx but shouldn't have
 	blocktxs = blocktxs[:len(blocktxs)-1]
 	// call function to make all the db lookups and find deathheights
-	lookupBlock(blocktxs, lvdb)
+	LookupBlock(blocktxs, lvdb)
 
 	for _, blocktx := range blocktxs {
 		adds, err := genLeafTXO(blocktx, uint32(height+1))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, a := range adds {
 
 			if a.Duration == 0 {
 				continue
 			}
-			//fmt.Println("lookahead: ", lookahead)
-			a.Remember = a.Duration < lookahead
-			//fmt.Println("Remember", a.Remember)
+			c := *totalTXOAdded
+			a.Remember =
+				scheduleBuffer[0]&(1<<(7-uint8(c%8))) != 0
 
 			*totalTXOAdded++
+			c = *totalTXOAdded
+			//fmt.Println("outsidepostlenbuf", len(scheduleBuffer))
+			if c%8 == 0 {
+				// after every 8 reads, pop the first byte off the front
+				scheduleBuffer = ((scheduleBuffer)[1:])
+			}
+			//fmt.Println("outoutoutsidepostlenbuf", len(scheduleBuffer))
+			// non-clair caching
+			//fmt.Println("lookahead: ", lookahead)
+			//a.Remember = a.Duration < lookahead
+			//fmt.Println("Remember", a.Remember)
 
 			blockAdds = append(blockAdds, a)
 			//fmt.Println("adds:", blockAdds)
@@ -205,18 +236,18 @@ func genPollard(
 	plustime += donetime.Sub(plusstart)
 	bpBytes, err := getProof(uint32(height), pFile, pOffsetFile)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	bp, err := utreexo.FromBytesBlockProof(bpBytes)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(bp.Targets) > 0 {
 		fmt.Printf("block proof for block %d targets: %v\n", height+1, bp.Targets)
 	}
 	err = p.IngestBlockProof(bp)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// totalTXOAdded += len(blockAdds)
@@ -224,9 +255,9 @@ func genPollard(
 
 	err = p.Modify(blockAdds, bp.Targets)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return scheduleBuffer, nil
 }
 
 // Gets the proof for a given block height

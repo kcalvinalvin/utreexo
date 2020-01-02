@@ -18,7 +18,7 @@ type deathInfo struct {
 // back to serial to write back to the txofile.
 
 // ttlLookup takes the slice of txotxs and fills in the deathheights
-func lookupBlock(block []*simutil.Txotx, db *leveldb.DB) {
+func LookupBlock(block []*simutil.Txotx, db *leveldb.DB) {
 
 	// I don't think buffering this will do anything..?
 	infoChan := make(chan deathInfo)
@@ -31,7 +31,7 @@ func lookupBlock(block []*simutil.Txotx, db *leveldb.DB) {
 		for txPos, _ := range tx.DeathHeights {
 			// increment counter, and send off to a worker
 			remaining++
-			go lookerUpperWorker(
+			go LookerUpperWorker(
 				tx.Outputtxid, uint32(blockPos), uint32(txPos), infoChan, db)
 		}
 	}
@@ -49,7 +49,7 @@ func lookupBlock(block []*simutil.Txotx, db *leveldb.DB) {
 
 // lookerUpperWorker does the hashing and db read, then returns it's result
 // via a channel
-func lookerUpperWorker(
+func LookerUpperWorker(
 	txid string, blockPos, txPos uint32,
 	infoChan chan deathInfo, db *leveldb.DB) {
 
@@ -62,7 +62,9 @@ func lookerUpperWorker(
 	opHash := simutil.HashFromString(utxostring)
 
 	// make DB lookup
+	//fmt.Printf("%x\n", opHash)
 	ttlbytes, err := db.Get(opHash[:], nil)
+	//fmt.Println("ttlbytes:", ttlbytes)
 	if err == leveldb.ErrNotFound {
 		//		fmt.Printf("can't find %s;%d in file", txid, txPos)
 		ttlbytes = make([]byte, 4) // not found is 0
@@ -76,6 +78,7 @@ func lookerUpperWorker(
 	}
 
 	di.deathHeight = simutil.BtU32(ttlbytes)
+	//fmt.Println(di.deathHeight)
 	// send back to the channel and this output is done
 	infoChan <- di
 

@@ -23,6 +23,9 @@ func writeBlock(tx []*wire.MsgTx, tipnum int,
 				//Perhaps converting to bytes can work?
 				opString := in.PreviousOutPoint.String()
 				h := simutil.HashFromString(opString)
+				//fmt.Printf("%x\n", h)
+				//fmt.Printf("%x\n", simutil.U32tB(uint32(tipnum)))
+				//fmt.Println(tipnum)
 				blockBatch.Put(h[:], simutil.U32tB(uint32(tipnum)))
 			}
 		}
