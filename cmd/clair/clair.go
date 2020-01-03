@@ -171,6 +171,7 @@ func Clairvoy(ttldb string, offsetfile string, mem string, sig chan bool) error 
 
 	fileString := fmt.Sprintf("schedule%dpos.clr", maxmem)
 	ioutil.WriteFile(fileString, scheduleSlice, 0644)
+	fmt.Println("utxoCounter", utxoCounter)
 	done <- true
 	return nil
 }
@@ -221,7 +222,7 @@ func genClair(
 		//We don't keep track of the OP_RETURNS so probably can get rid of this
 		for i, out := range tx.TxOut {
 			if simutil.IsUnspendable(out) {
-				// Skip all the unspendables
+				// mark all unspendables true
 				blocktxs[len(blocktxs)-1].Unspendable[i] = true
 			} else {
 				//txid := tx.TxHash().String()

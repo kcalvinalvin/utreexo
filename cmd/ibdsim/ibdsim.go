@@ -135,6 +135,7 @@ func RunIBD(isTestnet bool, offsetfile string, ttldb string, sig chan bool) erro
 
 	fmt.Println("Done Writing")
 
+	fmt.Println("totalTXOAdded", totalTXOAdded)
 	done <- true
 
 	return nil
@@ -161,8 +162,8 @@ func genPollard(
 	plusstart := time.Now()
 
 	//fmt.Println("lenbuf", len(scheduleBuffer))
-	if len(scheduleBuffer) < 3000 {
-		nextBuf := make([]byte, 3000)
+	if len(scheduleBuffer) < 100000 {
+		nextBuf := make([]byte, 100000)
 		_, err := scheduleFile.Read(nextBuf)
 		if err != nil { // will error on EOF, deal w that
 			panic(err)
@@ -301,11 +302,20 @@ func genLeafTXO(tx *simutil.Txotx, height uint32) ([]utreexo.LeafTXO, error) {
 		if tx.Unspendable[i] == true {
 			continue
 		}
-		utxostring := fmt.Sprintf("%s;%d", tx.Outputtxid, i)
-		addData := utreexo.LeafTXO{
-			Hash:     utreexo.HashFromString(utxostring),
-			Duration: int32(tx.DeathHeights[i] - height)}
-		adds = append(adds, addData)
+		// if the DeathHeights is 0, it means it's a UTXO. Shouldn't be remembered
+		if tx.DeathHeights[i] == 0 {
+			utxostring := fmt.Sprintf("%s;%d", tx.Outputtxid, i)
+			addData := utreexo.LeafTXO{
+				Hash:     utreexo.HashFromString(utxostring),
+				Duration: int32(1 << 30)} // random big number
+			adds = append(adds, addData)
+		} else {
+			utxostring := fmt.Sprintf("%s;%d", tx.Outputtxid, i)
+			addData := utreexo.LeafTXO{
+				Hash:     utreexo.HashFromString(utxostring),
+				Duration: int32(tx.DeathHeights[i] - height)}
+			adds = append(adds, addData)
+		}
 		// fmt.Printf("expire in\t%d remember %v\n", ttlval[i], addData.Remember)
 	}
 	return adds, nil
