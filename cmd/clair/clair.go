@@ -243,7 +243,7 @@ func genClair(
 
 	for _, blocktx := range blocktxs {
 		// genTXOEndHeight appends to blockEnds
-		ends, err := genTXOEndHeight(blocktx, utxoCounter)
+		ends, err := genTXOEndHeight(blocktx, utxoCounter, height+1)
 		if err != nil {
 			panic(err)
 		}
@@ -328,19 +328,33 @@ func genClair(
 // plusLine reads in a line of text, generates a utxo leaf, and determines
 // if this is a leaf to remember or not.
 // Modifies the blockEnds var that was passed in
-func genTXOEndHeight(tx *simutil.Txotx, utxoCounter *uint32) (sortableTxoSlice, error) {
+func genTXOEndHeight(tx *simutil.Txotx, utxoCounter *uint32, height uint32) (sortableTxoSlice, error) {
 	blockEnds := sortableTxoSlice{}
 	for i := 0; i < len(tx.DeathHeights); i++ {
 		if tx.Unspendable[i] == true {
 			continue
 		}
-		//fmt.Println("death", tx.DeathHeights[i])
-		e := txoEnd{
-			txoIdx: *utxoCounter,
-			end:    tx.DeathHeights[i],
+		// Skip all the same block spends
+		if tx.DeathHeights[i]-height == 0 {
+			continue
 		}
-		*utxoCounter++
-		blockEnds = append(blockEnds, e)
+		// Deatheight 0 means it's a UTXO. Don't remember UTXOs.
+		if tx.DeathHeights[i] == 0 {
+			e := txoEnd{
+				txoIdx: *utxoCounter,
+				end:    uint32(1 << 30),
+			}
+			*utxoCounter++
+			blockEnds = append(blockEnds, e)
+		} else {
+			e := txoEnd{
+				txoIdx: *utxoCounter,
+				end:    tx.DeathHeights[i],
+			}
+			*utxoCounter++
+			blockEnds = append(blockEnds, e)
+		}
+
 	}
 	return blockEnds, nil
 }

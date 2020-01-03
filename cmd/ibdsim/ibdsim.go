@@ -162,8 +162,8 @@ func genPollard(
 	plusstart := time.Now()
 
 	//fmt.Println("lenbuf", len(scheduleBuffer))
-	if len(scheduleBuffer) < 100000 {
-		nextBuf := make([]byte, 100000)
+	if len(scheduleBuffer) < 3000 {
+		nextBuf := make([]byte, 3000)
 		_, err := scheduleFile.Read(nextBuf)
 		if err != nil { // will error on EOF, deal w that
 			panic(err)
@@ -209,9 +209,6 @@ func genPollard(
 		}
 		for _, a := range adds {
 
-			if a.Duration == 0 {
-				continue
-			}
 			c := *totalTXOAdded
 			a.Remember =
 				scheduleBuffer[0]&(1<<(7-uint8(c%8))) != 0
@@ -302,6 +299,12 @@ func genLeafTXO(tx *simutil.Txotx, height uint32) ([]utreexo.LeafTXO, error) {
 		if tx.Unspendable[i] == true {
 			continue
 		}
+		// Skip all txos that are spent on the same block
+		// Does the same thing as DedupeHashSlices()
+		if tx.DeathHeights[i]-height == 0 {
+			continue
+		}
+
 		// if the DeathHeights is 0, it means it's a UTXO. Shouldn't be remembered
 		if tx.DeathHeights[i] == 0 {
 			utxostring := fmt.Sprintf("%s;%d", tx.Outputtxid, i)
@@ -309,6 +312,7 @@ func genLeafTXO(tx *simutil.Txotx, height uint32) ([]utreexo.LeafTXO, error) {
 				Hash:     utreexo.HashFromString(utxostring),
 				Duration: int32(1 << 30)} // random big number
 			adds = append(adds, addData)
+
 		} else {
 			utxostring := fmt.Sprintf("%s;%d", tx.Outputtxid, i)
 			addData := utreexo.LeafTXO{
