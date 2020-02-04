@@ -6,14 +6,14 @@ import (
 )
 
 // Modify is the main function that deletes then adds elements to the accumulator
-func (p *FullPollard) Modify(adds []LeafTXO, dels []uint64) error {
-	err := p.rem2(dels)
+func (fp *FullPollard) Modify(adds []LeafTXO, dels []uint64) error {
+	err := fp.rem2(dels)
 	if err != nil {
 		return err
 	}
 	// fmt.Printf("pol pre add %s", p.toString())
 
-	err = p.add(adds)
+	err = fp.add(adds)
 	if err != nil {
 		return err
 	}
@@ -22,14 +22,14 @@ func (p *FullPollard) Modify(adds []LeafTXO, dels []uint64) error {
 }
 
 // Stats :
-func (p *FullPollard) Stats() string {
-	s := fmt.Sprintf("pol nl %d tops %d he %d re %d ow %d \n",
-		p.numLeaves, len(p.tops), p.hashesEver, p.rememberEver, p.overWire)
+func (fp *FullPollard) Stats() string {
+	s := fmt.Sprintf("pol nl %d tops %d he %d ow %d \n",
+		fp.numLeaves, len(fp.tops), fp.hashesEver, fp.overWire)
 	return s
 }
 
 // Add a leaf to a pollard.  Not as simple!
-func (p *FullPollard) add(adds []LeafTXO) error {
+func (fp *FullPollard) add(adds []LeafTXO) error {
 
 	// General algo goes:
 	// 1 make a new node & assign data (no neices; at bottom)
@@ -41,9 +41,12 @@ func (p *FullPollard) add(adds []LeafTXO) error {
 	// this does everything 1 at a time, with hashing also mixed in, so that's
 	// pretty sub-optimal, but we're not doing multi-thread yet
 
+	// Everything in FullPollard is remembered. No need to keep track of what
+	// is to be remembered. Works like a forest.
+
 	for _, a := range adds {
 
-		err := p.addOne(a.Hash)
+		err := fp.addOne(a.Hash)
 		if err != nil {
 			return err
 		}
@@ -71,8 +74,9 @@ but that leftTop is still being pointed to anyway do it's OK.
 
 */
 
-// add a single leaf to a pollard
-func (p *FullPollard) addOne(add Hash) error {
+// add a single leaf to fullpollard
+// nothing is ever pruned. Every node is kept
+func (fp *FullPollard) addOne(add Hash) error {
 	// basic idea: you're going to start at the LSB and move left;
 	// the first 0 you find you're going to turn into a 1.
 
@@ -82,23 +86,21 @@ func (p *FullPollard) addOne(add Hash) error {
 	// if add is forgetable, forget all the new nodes made
 	var h uint8
 	// loop until we find a zero; destroy tops until you make one
-	for ; (p.numLeaves>>h)&1 == 1; h++ {
+	for ; (fp.numLeaves>>h)&1 == 1; h++ {
 		// grab, pop, swap, hash, new
-		leftTop := p.tops[len(p.tops)-1]                           // grab
-		p.tops = p.tops[:len(p.tops)-1]                            // pop
+		leftTop := fp.tops[len(fp.tops)-1]                         // grab
+		fp.tops = fp.tops[:len(fp.tops)-1]                         // pop
 		leftTop.niece, n.niece = n.niece, leftTop.niece            // swap
 		nHash := Parent(leftTop.data, n.data)                      // hash
 		n = &polNode{data: nHash, niece: [2]*polNode{&leftTop, n}} // new
-		p.hashesEver++
-
+		fp.hashesEver++
 	}
 
 	// the new tops are all the 1 bits above where we got to, and nothing below where
-	// we got to.  We've already deleted all the lower tops, so append the new
-	// one we just made onto the end.
+	// we got to. Append all the new nodes that new just created
 
-	p.tops = append(p.tops, *n)
-	p.numLeaves++
+	fp.tops = append(fp.tops, *n)
+	fp.numLeaves++
 	return nil
 }
 
@@ -117,14 +119,14 @@ func (p *FullPollard) addOne(add Hash) error {
 // that all hashing for row 1 has finished.
 
 // rem2 deletes stuff from the pollard, using remtrans2
-func (p *FullPollard) rem2(dels []uint64) error {
+func (fp *FullPollard) rem2(dels []uint64) error {
 	if len(dels) == 0 {
 		return nil // that was quick
 	}
-	ph := p.height() // height of pollard
-	nextNumLeaves := p.numLeaves - uint64(len(dels))
+	ph := fp.height() // height of pollard
+	nextNumLeaves := fp.numLeaves - uint64(len(dels))
 	// get all the swaps, then apply them all
-	swaprows := remTrans2(dels, p.numLeaves, ph)
+	swaprows := remTrans2(dels, fp.numLeaves, ph)
 	wg := new(sync.WaitGroup)
 	// fmt.Printf(" @@@@@@ rem2 nl %d ph %d rem %v\n", p.numLeaves, ph, dels)
 	var hashDirt, nextHashDirt []uint64
@@ -145,7 +147,7 @@ func (p *FullPollard) rem2(dels []uint64) error {
 				len(hashDirt) != 0 && hashDirt[0] > swaprows[h][0].to {
 				// re-descending here which isn't great
 				// fmt.Printf("hashing from dirt %d\n", hashDirt[0])
-				hn, err = p.hnFromPos(hashDirt[0])
+				hn, err = fp.hnFromPos(hashDirt[0])
 				if err != nil {
 					return err
 				}
@@ -158,7 +160,7 @@ func (p *FullPollard) rem2(dels []uint64) error {
 					swaprows[h] = swaprows[h][1:]
 					continue
 				}
-				hn, err = p.swapNodes(swaprows[h][0])
+				hn, err = fp.swapNodes(swaprows[h][0])
 				if err != nil {
 					return err
 				}
@@ -207,7 +209,7 @@ func (p *FullPollard) rem2(dels []uint64) error {
 	nextTopPoss, _ := getTopsReverse(nextNumLeaves, ph)
 	nexTops := make([]polNode, len(nextTopPoss))
 	for i, _ := range nexTops {
-		nt, ntsib, _, err := p.grabPos(nextTopPoss[i])
+		nt, ntsib, _, err := fp.grabPos(nextTopPoss[i])
 		if err != nil {
 			return err
 		}
@@ -223,30 +225,30 @@ func (p *FullPollard) rem2(dels []uint64) error {
 		}
 		nexTops[i] = *nt
 	}
-	p.numLeaves = nextNumLeaves
+	fp.numLeaves = nextNumLeaves
 	reversePolNodeSlice(nexTops)
-	p.tops = nexTops
+	fp.tops = nexTops
 	return nil
 }
 
-func (p *FullPollard) hnFromPos(pos uint64) (*hashableNode, error) {
-	if !inForest(pos, p.numLeaves, p.height()) {
+func (fp *FullPollard) hnFromPos(pos uint64) (*hashableNode, error) {
+	if !inForest(pos, fp.numLeaves, fp.height()) {
 		// fmt.Printf("HnFromPos %d out of forest\n", pos)
 		return nil, nil
 	}
-	_, _, hn, err := p.grabPos(pos)
+	_, _, hn, err := fp.grabPos(pos)
 	if err != nil {
 		return nil, err
 	}
-	hn.position = up1(pos, p.height())
+	hn.position = up1(pos, fp.height())
 	return hn, nil
 }
 
 // swapNodes swaps the nodes at positions a and b.
 // returns a hashable node with b, bsib, and bpar
-func (p *FullPollard) swapNodes(r arrow) (*hashableNode, error) {
-	if !inForest(r.from, p.numLeaves, p.height()) ||
-		!inForest(r.to, p.numLeaves, p.height()) {
+func (fp *FullPollard) swapNodes(r arrow) (*hashableNode, error) {
+	if !inForest(r.from, fp.numLeaves, fp.height()) ||
+		!inForest(r.to, fp.numLeaves, fp.height()) {
 		return nil, fmt.Errorf("swapNodes %d %d out of bounds", r.from, r.to)
 	}
 
@@ -257,11 +259,11 @@ func (p *FullPollard) swapNodes(r arrow) (*hashableNode, error) {
 	// TODO could be improved by getting the highest common ancestor
 	// and then splitting instead of doing 2 full descents
 
-	a, asib, _, err := p.grabPos(r.from)
+	a, asib, _, err := fp.grabPos(r.from)
 	if err != nil {
 		return nil, err
 	}
-	b, bsib, bhn, err := p.grabPos(r.to)
+	b, bsib, bhn, err := fp.grabPos(r.to)
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +276,7 @@ func (p *FullPollard) swapNodes(r arrow) (*hashableNode, error) {
 
 	// fmt.Printf("swapNodes swapping a %d %x with b %d %x\n",
 	// r.from, a.data[:4], r.to, b.data[:4])
-	bhn.position = up1(r.to, p.height())
+	bhn.position = up1(r.to, fp.height())
 	// do the actual swap here
 	err = polSwap(a, asib, b, bsib)
 	if err != nil {
@@ -290,11 +292,11 @@ func (p *FullPollard) swapNodes(r arrow) (*hashableNode, error) {
 // as well as its sibling.  And a hashable node for the position ABOVE pos.
 // And an error if it can't get it.
 // NOTE errors are not exhaustive; could return garbage without an error
-func (p *FullPollard) grabPos(
+func (fp *FullPollard) grabPos(
 	pos uint64) (n, nsib *polNode, hn *hashableNode, err error) {
-	tree, branchLen, bits := detectOffset(pos, p.numLeaves)
+	tree, branchLen, bits := detectOffset(pos, fp.numLeaves)
 	// fmt.Printf("grab %d, tree %d, bl %d bits %x\n", pos, tree, branchLen, bits)
-	n, nsib = &p.tops[tree], &p.tops[tree]
+	n, nsib = &fp.tops[tree], &fp.tops[tree]
 	hn = &hashableNode{dest: n, sib: nsib}
 	for h := branchLen - 1; h != 255; h-- { // go through branch
 		lr := uint8(bits>>h) & 1
@@ -327,23 +329,23 @@ func (p *FullPollard) grabPos(
 // DescendToPos returns the path to the target node, as well as the sibling
 // path.  Retruns paths in bottom-to-top order (backwards)
 // sibs[0] is the node you actually asked for
-func (p *FullPollard) descendToPos(pos uint64) ([]*polNode, []*polNode, error) {
+func (fp *FullPollard) descendToPos(pos uint64) ([]*polNode, []*polNode, error) {
 	// interate to descend.  It's like the leafnum, xored with ...1111110
 	// so flip every bit except the last one.
 	// example: I want leaf 12.  That's 1100.  xor to get 0010.
 	// descent 0, 0, 1, 0 (left, left, right, left) to get to 12 from 30.
 	// need to figure out offsets for smaller trees.
 
-	if !inForest(pos, p.numLeaves, p.height()) {
+	if !inForest(pos, fp.numLeaves, fp.height()) {
 		//	if pos >= (p.numLeaves*2)-1 {
 		return nil, nil,
-			fmt.Errorf("OOB: descend to %d but only %d leaves", pos, p.numLeaves)
+			fmt.Errorf("OOB: descend to %d but only %d leaves", pos, fp.numLeaves)
 	}
 
 	// first find which tree we're in
-	tNum, branchLen, bits := detectOffset(pos, p.numLeaves)
+	tNum, branchLen, bits := detectOffset(pos, fp.numLeaves)
 	//	fmt.Printf("DO pos %d top %d bits %d branlen %d\n", pos, tNum, bits, branchLen)
-	n := &p.tops[tNum]
+	n := &fp.tops[tNum]
 	if branchLen > 64 {
 		return nil, nil, fmt.Errorf("dtp top %d is nil", tNum)
 	}
@@ -377,14 +379,14 @@ func (p *FullPollard) descendToPos(pos uint64) ([]*polNode, []*polNode, error) {
 // toFull takes a pollard and converts to a forest.
 // For debugging and seeing what pollard is doing since there's already
 // a good toString method for  forest.
-func (p *FullPollard) toFull() (*Forest, error) {
+func (fp *FullPollard) toFull() (*Forest, error) {
 
 	ff := NewForest(nil)
-	ff.height = p.height()
-	ff.numLeaves = p.numLeaves
+	ff.height = fp.height()
+	ff.numLeaves = fp.numLeaves
 	ff.data = new(ramForestData)
 	ff.data.resize(2 << ff.height)
-	if p.numLeaves == 0 {
+	if fp.numLeaves == 0 {
 		return ff, nil
 	}
 
@@ -394,7 +396,7 @@ func (p *FullPollard) toFull() (*Forest, error) {
 	// Grab all the leaves (aka polNode) that exists.
 	// The number of leaves are alwyas 1 less than (height**2)
 	for i := uint64(0); i < (2<<ff.height)-1; i++ {
-		_, sib, err := p.descendToPos(i)
+		_, sib, err := fp.descendToPos(i)
 		if err != nil {
 			//	fmt.Printf("can't get pos %d: %s\n", i, err.Error())
 			continue
@@ -410,9 +412,8 @@ func (p *FullPollard) toFull() (*Forest, error) {
 	return ff, nil
 }
 
-//func (p *FullPollard) ToString() string {
-func (p *FullPollard) ToString() string {
-	f, err := p.toFull()
+func (fp *FullPollard) ToString() string {
+	f, err := fp.toFull()
 	if err != nil {
 		return err.Error()
 	}
@@ -421,13 +422,13 @@ func (p *FullPollard) ToString() string {
 
 // equalToForest checks if the pollard has the same leaves as the forest.
 // doesn't check tops and stuff
-func (p *FullPollard) equalToForest(f *Forest) bool {
-	if p.numLeaves != f.numLeaves {
+func (fp *FullPollard) equalToForest(f *Forest) bool {
+	if fp.numLeaves != f.numLeaves {
 		return false
 	}
 
 	for leafpos := uint64(0); leafpos < f.numLeaves; leafpos++ {
-		n, _, _, err := p.grabPos(leafpos)
+		n, _, _, err := fp.grabPos(leafpos)
 		if err != nil {
 			return false
 		}
@@ -443,13 +444,13 @@ func (p *FullPollard) equalToForest(f *Forest) bool {
 // equalToForestIfThere checks if the pollard has the same leaves as the forest.
 // it's OK though for a leaf not to be there; only it can't exist and have
 // a different value than one in the forest
-func (p *FullPollard) equalToForestIfThere(f *Forest) bool {
-	if p.numLeaves != f.numLeaves {
+func (fp *FullPollard) equalToForestIfThere(f *Forest) bool {
+	if fp.numLeaves != f.numLeaves {
 		return false
 	}
 
 	for leafpos := uint64(0); leafpos < f.numLeaves; leafpos++ {
-		n, _, _, err := p.grabPos(leafpos)
+		n, _, _, err := fp.grabPos(leafpos)
 		if err != nil || n == nil {
 			continue // ignore grabPos errors / nils
 		}

@@ -68,7 +68,7 @@ in numLeaves.  As soon as we hit a 0 (no top), we're done.
 
 grab: Grab the lowest top.
 pop: pop off the lowest top.
-swap: swap the neices of the node we grabbed and our new node
+swap: swap the nieces of the node we grabbed and our new node
 hash: calculate the hashes of the old top and new node
 new: create a new parent node, with the hash as data, and the old top / prev new node
 as neices (not neices though, children)

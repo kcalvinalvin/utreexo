@@ -24,7 +24,7 @@ func genPollard(
 	pFile *os.File,
 	pOffsetFile *os.File,
 	lvdb *leveldb.DB,
-	p *utreexo.Pollard) error {
+	p *utreexo.FullPollard) error {
 
 	var blockAdds []utreexo.LeafTXO
 	blocktxs := []*simutil.Txotx{new(simutil.Txotx)}

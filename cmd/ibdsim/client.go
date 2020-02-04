@@ -71,7 +71,7 @@ func IBDClient(isTestnet bool,
 	simutil.MakePaths()
 
 	var height int
-	var p utreexo.Pollard
+	var p utreexo.FullPollard
 	if simutil.HasAccess(simutil.PollardFilePath) {
 		fmt.Println("pollardfile access")
 
