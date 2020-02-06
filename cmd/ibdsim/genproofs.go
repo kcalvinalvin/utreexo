@@ -148,50 +148,52 @@ func BuildProofs(
 	if err != nil {
 		panic(err)
 	}
-	pOffsetCurrentOffsetFile, err := os.OpenFile(
-		simutil.POffsetCurrentOffsetFilePath, os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		panic(err)
-	}
-
-	var newForest *utreexo.Forest
-	if simutil.HasAccess(simutil.ForestFilePath) {
-		fmt.Println("forestFile access")
-
-		// Where the forestfile exists
-		forestFile, err := os.OpenFile(
-			simutil.ForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
-		if err != nil {
-			return err
-		}
-
-		// Other forest variables
-		miscForestFile, err := os.OpenFile(
-			simutil.MiscForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
-		if err != nil {
-			return err
-		}
-
-		// Restores all the forest data
-		newForest, err = utreexo.RestoreForest(miscForestFile, forestFile)
+	/*
+		pOffsetCurrentOffsetFile, err := os.OpenFile(
+			simutil.POffsetCurrentOffsetFilePath, os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
 			panic(err)
 		}
-	} else {
-		fmt.Println("No forestFile access")
-		forestFile, err := os.OpenFile(simutil.ForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
-		if err != nil {
-			return err
-		}
-		newForest = utreexo.NewForest(forestFile)
-	}
 
-	// Other forest variables
-	miscForestFile, err := os.OpenFile(
-		simutil.MiscForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return err
-	}
+			if simutil.HasAccess(simutil.ForestFilePath) {
+				fmt.Println("forestFile access")
+
+				// Where the forestfile exists
+				forestFile, err := os.OpenFile(
+					simutil.ForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
+				if err != nil {
+					return err
+				}
+
+				// Other forest variables
+				miscForestFile, err := os.OpenFile(
+					simutil.MiscForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
+				if err != nil {
+					return err
+				}
+
+				// Restores all the forest data
+				newForest, err = utreexo.RestoreForest(miscForestFile, forestFile)
+				if err != nil {
+					panic(err)
+				}
+			} else {
+				fmt.Println("No forestFile access")
+				forestFile, err := os.OpenFile(simutil.ForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
+				if err != nil {
+					return err
+				}
+				newForest = utreexo.NewForest(forestFile)
+			}
+			// Other forest variables
+			miscForestFile, err := os.OpenFile(
+				simutil.MiscForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
+			if err != nil {
+				return err
+			}
+	*/
+	var fullPollard utreexo.Pollard
+	fullPollard = utreexo.NewFullPollard()
 
 	var totalProofNodes int
 
@@ -211,7 +213,7 @@ func BuildProofs(
 		b := <-bchan
 
 		err := writeProofs(b.Txs, b.Height,
-			pFile, pOffsetFile, newForest, totalProofNodes, &pOffset)
+			pFile, pOffsetFile, &fullPollard, totalProofNodes, &pOffset)
 		if err != nil {
 			panic(err)
 		}
@@ -242,15 +244,17 @@ func BuildProofs(
 	}
 	heightFile.Close()
 
-	err = newForest.WriteForest(miscForestFile)
-	if err != nil {
-		panic(err)
-	}
-	_, err = pOffsetCurrentOffsetFile.WriteAt(
-		simutil.U32tB(pOffset), 0)
-	if err != nil {
-		panic(err)
-	}
+	/*
+		err = newForest.WriteForest(miscForestFile)
+		if err != nil {
+			panic(err)
+		}
+		_, err = pOffsetCurrentOffsetFile.WriteAt(
+			simutil.U32tB(pOffset), 0)
+		if err != nil {
+			panic(err)
+		}
+	*/
 
 	// wait until dbWorker() has written to the ttldb file
 	// allows leveldb to close gracefully
@@ -274,7 +278,7 @@ func writeProofs(
 	height int32,
 	pFile *os.File,
 	pOffsetFile *os.File,
-	newForest *utreexo.Forest,
+	fullPollard *utreexo.Pollard,
 	totalProofNodes int,
 	pOffset *uint32) error {
 
@@ -335,12 +339,12 @@ func writeProofs(
 	//they are created.
 	utreexo.DedupeHashSlices(&blockAdds, &blockDels)
 
-	blockProof, err := newForest.ProveBlock(blockDels)
+	blockProof, err := fullPollard.ProveBlock(blockDels)
 	if err != nil {
-		return fmt.Errorf("ProveBlock failed at block %d %s %s", height+1, newForest.Stats(), err.Error())
+		return fmt.Errorf("ProveBlock failed at block %d %s %s", height+1, err.Error())
 	}
 
-	ok := newForest.VerifyBlockProof(blockProof)
+	ok := fullPollard.VerifyBlockProof(blockProof)
 	if !ok {
 		return fmt.Errorf("VerifyBlockProof failed at block %d", height+1)
 	}
@@ -371,7 +375,7 @@ func writeProofs(
 	if err != nil {
 		return err
 	}
-	_, err = newForest.Modify(blockAdds, blockProof.Targets)
+	err = fullPollard.Modify(blockAdds, blockProof.Targets)
 	if err != nil {
 		return err
 	}
