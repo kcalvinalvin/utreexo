@@ -155,14 +155,37 @@ func BuildProofs(
 	}
 
 	var newForest *utreexo.Forest
-	if simutil.HasAccess(simutil.ForestFilePath) {
-		fmt.Println("forestFile access")
+	newForest = utreexo.NewForest()
+	/*
+		if simutil.HasAccess(simutil.ForestFilePath) {
+			fmt.Println("forestFile access")
 
-		// Where the forestfile exists
-		forestFile, err := os.OpenFile(
-			simutil.ForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
-		if err != nil {
-			return err
+			// Where the forestfile exists
+			forestFile, err := os.OpenFile(
+				simutil.ForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
+			if err != nil {
+				return err
+			}
+
+			// Other forest variables
+			miscForestFile, err := os.OpenFile(
+				simutil.MiscForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
+			if err != nil {
+				return err
+			}
+
+			// Restores all the forest data
+			newForest, err = utreexo.RestoreForest(miscForestFile, forestFile)
+			if err != nil {
+				panic(err)
+			}
+		} else {
+			fmt.Println("No forestFile access")
+			forestFile, err := os.OpenFile(simutil.ForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
+			if err != nil {
+				return err
+			}
+			newForest = utreexo.NewForest(forestFile)
 		}
 
 		// Other forest variables
@@ -171,27 +194,7 @@ func BuildProofs(
 		if err != nil {
 			return err
 		}
-
-		// Restores all the forest data
-		newForest, err = utreexo.RestoreForest(miscForestFile, forestFile)
-		if err != nil {
-			panic(err)
-		}
-	} else {
-		fmt.Println("No forestFile access")
-		forestFile, err := os.OpenFile(simutil.ForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
-		if err != nil {
-			return err
-		}
-		newForest = utreexo.NewForest(forestFile)
-	}
-
-	// Other forest variables
-	miscForestFile, err := os.OpenFile(
-		simutil.MiscForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return err
-	}
+	*/
 
 	var totalProofNodes int
 
@@ -202,6 +205,7 @@ func BuildProofs(
 	bchan := make(chan simutil.BlockToWrite, 10)
 
 	fmt.Println("Building Proofs and ttldb...")
+	fmt.Println("forestmem")
 
 	// Reads block asynchronously from .dat files
 	go simutil.BlockReader(bchan, currentOffsetHeight, height, simutil.OffsetFilePath)
@@ -235,17 +239,19 @@ func BuildProofs(
 
 	fmt.Println("Cleaning up for exit...")
 
-	// write to the heightfile
-	_, err = heightFile.WriteAt(simutil.U32tB(uint32(height)), 0)
-	if err != nil {
-		panic(err)
-	}
-	heightFile.Close()
+	/*
+		// write to the heightfile
+		_, err = heightFile.WriteAt(simutil.U32tB(uint32(height)), 0)
+		if err != nil {
+			panic(err)
+		}
+		heightFile.Close()
 
-	err = newForest.WriteForest(miscForestFile)
-	if err != nil {
-		panic(err)
-	}
+		err = newForest.WriteForest(miscForestFile)
+		if err != nil {
+			panic(err)
+		}
+	*/
 	_, err = pOffsetCurrentOffsetFile.WriteAt(
 		simutil.U32tB(pOffset), 0)
 	if err != nil {
