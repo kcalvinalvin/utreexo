@@ -73,6 +73,7 @@ func NewForest(forestFile *os.File) *Forest {
 
 	if forestFile == nil {
 		// for in-ram
+		fmt.Println("Using ramForest")
 		f.data = new(ramForestData)
 	} else {
 		// for on-disk

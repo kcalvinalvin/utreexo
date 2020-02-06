@@ -64,24 +64,26 @@ func BuildProofs(
 	//if there is a heightfile, get the height from that
 	// heightFile saves the last block that was written to ttldb
 	var err error
-	if simutil.HasAccess(simutil.HeightFilePath) {
+	/*
+		if simutil.HasAccess(simutil.HeightFilePath) {
+			heightFile, err := os.OpenFile(
+				simutil.HeightFilePath, os.O_CREATE|os.O_RDWR, 0600)
+			if err != nil {
+				panic(err)
+			}
+			var t [4]byte
+			_, err = heightFile.Read(t[:])
+			if err != nil {
+				return err
+			}
+			height = simutil.BtI32(t[:])
+		}
 		heightFile, err := os.OpenFile(
-			simutil.HeightFilePath, os.O_CREATE|os.O_RDWR, 0600)
+			simutil.HeightFilePath, os.O_CREATE|os.O_WRONLY, 0600)
 		if err != nil {
 			panic(err)
 		}
-		var t [4]byte
-		_, err = heightFile.Read(t[:])
-		if err != nil {
-			return err
-		}
-		height = simutil.BtI32(t[:])
-	}
-	heightFile, err := os.OpenFile(
-		simutil.HeightFilePath, os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		panic(err)
-	}
+	*/
 
 	// grab the last block height from currentoffsetheight
 	// currentoffsetheight saves the last height from the offsetfile
@@ -155,7 +157,7 @@ func BuildProofs(
 	}
 
 	var newForest *utreexo.Forest
-	newForest = utreexo.NewForest()
+	newForest = utreexo.NewForest(nil)
 	/*
 		if simutil.HasAccess(simutil.ForestFilePath) {
 			fmt.Println("forestFile access")
