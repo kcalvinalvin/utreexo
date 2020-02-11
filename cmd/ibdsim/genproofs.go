@@ -29,132 +29,47 @@ func BuildProofs(
 	// Handle user interruptions
 	go stopBuildProofs(sig, offsetfinished, done, finish)
 
-	//defaults to the testnet Gensis tip
-	tip := simutil.TestNet3GenHash
-
-	//If given the option testnet=true, check if the blk00000.dat file
-	//in the directory is a testnet file. Vise-versa for mainnet
+	// If given the option testnet=true, check if the blk00000.dat file
+	// in the directory is a testnet file. Vise-versa for mainnet
 	simutil.CheckTestnet(isTestnet)
 
+	// Creates all the directories needed for simcmd
+	simutil.MakePaths()
+
+	var tip simutil.Hash
+	// Set the tip Hash
 	if isTestnet != true {
 		tip = simutil.MainnetGenHash
+	} else {
+		tip = simutil.TestNet3GenHash
 	}
-
-	// Creates all the paths needed for simcmd
-	simutil.MakePaths()
 
 	var currentOffsetHeight int32
 	var height int32
-	nextMap := make(map[[32]byte]simutil.RawHeaderData)
-
 	// if there isn't an offset file, make one
 	if simutil.HasAccess(simutil.OffsetFilePath) == false {
 		fmt.Println("offsetfile not present. Building...")
-		currentOffsetHeight, _ = buildOffsetFile(tip, height, nextMap,
-			simutil.OffsetFilePath, simutil.CurrentOffsetFilePath,
-			offsetfinished)
+		var err error
+		currentOffsetHeight, err = buildOffsetFile(tip,
+			height, offsetfinished)
+		if err != nil {
+			panic(err)
+		}
 	} else {
 		// if there is a offset file, we should pass true to offsetfinished
 		// to let stopParse() know that it shouldn't delete offsetfile
 		offsetfinished <- true
 	}
 
-	//if there is a heightfile, get the height from that
-	// heightFile saves the last block that was written to ttldb
-	var err error
-	if simutil.HasAccess(simutil.HeightFilePath) {
-		heightFile, err := os.OpenFile(
-			simutil.HeightFilePath, os.O_CREATE|os.O_RDWR, 0600)
-		if err != nil {
-			panic(err)
-		}
-		var t [4]byte
-		_, err = heightFile.Read(t[:])
-		if err != nil {
-			panic(err)
-		}
-		height = simutil.BtI32(t[:])
-	}
-	heightFile, err := os.OpenFile(
-		simutil.HeightFilePath, os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		panic(err)
-	}
-
-	// grab the last block height from currentoffsetheight
-	// currentoffsetheight saves the last height from the offsetfile
-	var currentOffsetHeightByte [4]byte
-	currentOffsetHeightFile, err := os.OpenFile(
-		simutil.CurrentOffsetFilePath, os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		panic(err)
-	}
-	_, err = currentOffsetHeightFile.Read(currentOffsetHeightByte[:])
-	if err != nil {
-		panic(err)
-	}
-	currentOffsetHeightFile.Read(currentOffsetHeightByte[:])
-	currentOffsetHeight = simutil.BtI32(currentOffsetHeightByte[:])
-
-	// Open leveldb
-	o := new(opt.Options)
-	o.CompactionTableSizeMultiplier = 8
-	lvdb, err := leveldb.OpenFile(ttldb, o)
-	if err != nil {
-		panic(err)
-	}
-	defer lvdb.Close()
-	var batchwg sync.WaitGroup
-	// make the channel ... have a buffer? does it matter?
-	batchan := make(chan *leveldb.Batch)
-
-	//start db writer worker... actually start a bunch of em
-	// try 16 workers...?
-	for j := 0; j < 16; j++ {
-		go dbWorker(batchan, lvdb, &batchwg)
-	}
-
-	// Where the proofs for txs exist
-	pFile, err := os.OpenFile(
-		simutil.PFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		panic(err)
-	}
-	defer pFile.Close()
-
-	// Gives the location of where a particular block height's proofs are
-	// Basically an index
+	// restores variables for resuming genproofs
 	var pOffset uint32
-	if simutil.HasAccess(simutil.POffsetCurrentOffsetFilePath) {
-		pOffsetCurrentOffsetFile, err := os.OpenFile(
-			simutil.POffsetCurrentOffsetFilePath,
-			os.O_CREATE|os.O_RDWR, 0600)
-		if err != nil {
-			panic(err)
-		}
-		pOffset, err = simutil.GetPOffsetNum(pOffsetCurrentOffsetFile)
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println("Poffset restored to", pOffset)
+	height, currentOffsetHeight, pOffset = ResumeGenProofs(
+		isTestnet, offsetfinished)
 
-	}
-
-	pOffsetFile, err := os.OpenFile(
-		simutil.POffsetFilePath,
-		os.O_APPEND|os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		panic(err)
-	}
-	pOffsetCurrentOffsetFile, err := os.OpenFile(
-		simutil.POffsetCurrentOffsetFilePath, os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		panic(err)
-	}
-
-	var newForest *utreexo.Forest
+	// Restores forest
+	var forest *utreexo.Forest
 	if simutil.HasAccess(simutil.ForestFilePath) {
-		fmt.Println("forestFile access")
+		fmt.Println("Has access to forestfile, resuming...")
 
 		// Where the forestfile exists
 		forestFile, err := os.OpenFile(
@@ -171,22 +86,51 @@ func BuildProofs(
 		}
 
 		// Restores all the forest data
-		newForest, err = utreexo.RestoreForest(miscForestFile, forestFile)
+		forest, err = utreexo.RestoreForest(miscForestFile, forestFile)
 		if err != nil {
 			panic(err)
 		}
 	} else {
-		fmt.Println("No forestFile access")
-		forestFile, err := os.OpenFile(simutil.ForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
+		// Where the forestfile exists
+		forestFile, err := os.OpenFile(
+			simutil.ForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
 			panic(err)
 		}
-		newForest = utreexo.NewForest(forestFile)
+
+		fmt.Println("No forestFile access")
+		forest = utreexo.NewForest(forestFile)
 	}
 
-	// Other forest variables
-	miscForestFile, err := os.OpenFile(
-		simutil.MiscForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
+	// Open leveldb
+	o := new(opt.Options)
+	o.CompactionTableSizeMultiplier = 8
+	lvdb, err := leveldb.OpenFile(ttldb, o)
+	if err != nil {
+		panic(err)
+	}
+	defer lvdb.Close()
+
+	var batchwg sync.WaitGroup
+	// make the channel ... have a buffer? does it matter?
+	batchan := make(chan *leveldb.Batch)
+
+	// start db writer worker... actually start a bunch of em
+	// try 16 workers...?
+	for j := 0; j < 16; j++ {
+		go dbWorker(batchan, lvdb, &batchwg)
+	}
+
+	// Where the proofs for txs exist
+	pFile, err := os.OpenFile(
+		simutil.PFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		panic(err)
+	}
+	defer pFile.Close()
+
+	pOffsetFile, err := os.OpenFile(
+		simutil.POffsetFilePath, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		panic(err)
 	}
@@ -202,14 +146,15 @@ func BuildProofs(
 	fmt.Println("Building Proofs and ttldb...")
 
 	// Reads block asynchronously from .dat files
-	go simutil.BlockReader(bchan, currentOffsetHeight, height, simutil.OffsetFilePath)
+	go simutil.BlockReader(
+		bchan, currentOffsetHeight, height, simutil.OffsetFilePath)
 
 	for ; height != currentOffsetHeight && stop != true; height++ {
 
 		b := <-bchan
 
 		err := writeProofs(b.Txs, b.Height,
-			pFile, pOffsetFile, newForest, totalProofNodes, &pOffset)
+			pFile, pOffsetFile, forest, totalProofNodes, &pOffset)
 		if err != nil {
 			panic(err)
 		}
@@ -233,26 +178,38 @@ func BuildProofs(
 
 	fmt.Println("Cleaning up for exit...")
 
-	// write to the heightfile
-	_, err = heightFile.WriteAt(simutil.U32tB(uint32(height)), 0)
-	if err != nil {
-		panic(err)
-	}
-	heightFile.Close()
-
-	err = newForest.WriteForest(miscForestFile)
-	if err != nil {
-		panic(err)
-	}
-	_, err = pOffsetCurrentOffsetFile.WriteAt(
-		simutil.U32tB(pOffset), 0)
-	if err != nil {
-		panic(err)
-	}
-
 	// wait until dbWorker() has written to the ttldb file
 	// allows leveldb to close gracefully
 	batchwg.Wait()
+
+	pOffsetCurrentOffsetFile, err := os.OpenFile(
+		simutil.POffsetCurrentOffsetFilePath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		panic(err)
+	}
+	heightFile, err := os.OpenFile(
+		simutil.HeightFilePath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		panic(err)
+	}
+	miscForestFile, err := os.OpenFile(
+		simutil.MiscForestFilePath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		panic(err)
+	}
+
+	// Save the current state so genproofs can be resumed
+	err = saveGenproofs(
+		forest,
+		pOffset,
+		height,
+		heightFile,
+		miscForestFile,
+		pOffsetCurrentOffsetFile,
+	)
+	if err != nil {
+		panic(err)
+	}
 
 	fmt.Println("Poffset is", pOffset)
 
@@ -272,7 +229,7 @@ func writeProofs(
 	height int32,
 	pFile *os.File,
 	pOffsetFile *os.File,
-	newForest *utreexo.Forest,
+	forest *utreexo.Forest,
 	totalProofNodes int,
 	pOffset *uint32) error {
 
@@ -333,12 +290,12 @@ func writeProofs(
 	//they are created.
 	utreexo.DedupeHashSlices(&blockAdds, &blockDels)
 
-	blockProof, err := newForest.ProveBlock(blockDels)
+	blockProof, err := forest.ProveBlock(blockDels)
 	if err != nil {
-		return fmt.Errorf("ProveBlock failed at block %d %s %s", height+1, newForest.Stats(), err.Error())
+		return fmt.Errorf("ProveBlock failed at block %d %s %s", height+1, forest.Stats(), err.Error())
 	}
 
-	ok := newForest.VerifyBlockProof(blockProof)
+	ok := forest.VerifyBlockProof(blockProof)
 	if !ok {
 		return fmt.Errorf("VerifyBlockProof failed at block %d", height+1)
 	}
@@ -369,7 +326,7 @@ func writeProofs(
 	if err != nil {
 		panic(err)
 	}
-	_, err = newForest.Modify(blockAdds, blockProof.Targets)
+	_, err = forest.Modify(blockAdds, blockProof.Targets)
 	if err != nil {
 		panic(err)
 	}
