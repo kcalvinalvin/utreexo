@@ -7,9 +7,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/mit-dci/lit/wire"
+	"github.com/btcsuite/btcd/wire"
 	bridge "github.com/mit-dci/utreexo/cmd/bridgenode"
 	"github.com/mit-dci/utreexo/cmd/csn"
+	"github.com/pkg/profile"
 )
 
 var msg = `
@@ -30,6 +31,7 @@ var netCmd = optionCmd.String("net", "mainnet",
 	"Target testnet or regtest instead of mainnet. Usage: '-net=regtest' or '-net=testnet'")
 
 func main() {
+	defer profile.Start().Stop()
 	// check if enough arguments were given
 	if len(os.Args) < 2 {
 		fmt.Println(msg)

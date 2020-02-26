@@ -120,7 +120,6 @@ func VerifyBlockProof(
 		fmt.Printf("VerifyBlockProof Reconstruct ERROR %s\n", err.Error())
 		return false, proofmap
 	}
-
 	//	fmt.Printf("Reconstruct complete\n")
 	topposs, topheights := getTopsReverse(numLeaves, height)
 
