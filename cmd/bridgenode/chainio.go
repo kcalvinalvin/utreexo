@@ -10,9 +10,8 @@ import (
 // createOffsetData restores the offsetfile needed to index the
 // blocks in the raw blk*.dat files.
 func createOffsetData(
-	isTestnet bool, offsetFinished chan bool) (int32, error) {
-
-	var lastIndexOffsetHeight int32
+	isTestnet bool, offsetFinished chan bool) (
+	lastIndexOffsetHeight int32, err error) {
 
 	// Set the Block Header hash
 	// buildOffsetFile matches the header hash to organize
@@ -23,21 +22,18 @@ func createOffsetData(
 		tip = util.MainnetGenHash
 	}
 
-	var err error
 	lastIndexOffsetHeight, err = buildOffsetFile(tip, offsetFinished)
 	if err != nil {
 		return 0, err
 	}
 
-	return lastIndexOffsetHeight, nil
+	return
 }
 
 // restoreLastProofFileOffset restores POffset from util.LastPOffsetFilePath
-func restoreLastProofFileOffset() (int32, error) {
-
-	// Gives the location of where a particular block height's proofs are
-	// Basically an index
-	var pOffset int32
+// pOffset represents the location of where a particular block height's proofs
+// are. Basically an index.
+func restoreLastProofFileOffset() (pOffset int32, err error) {
 
 	if util.HasAccess(util.LastPOffsetFilePath) {
 		f, err := os.OpenFile(
@@ -54,11 +50,11 @@ func restoreLastProofFileOffset() (int32, error) {
 		pOffset = util.BtI32(pOffsetByte[:])
 
 	}
-	return pOffset, nil
+	return
 }
 
 // createForest initializes forest
-func createForest() (*utreexo.Forest, error) {
+func createForest() (forest *utreexo.Forest, err error) {
 
 	// Where the forestfile exists
 	forestFile, err := os.OpenFile(
@@ -68,16 +64,14 @@ func createForest() (*utreexo.Forest, error) {
 	}
 
 	// Restores all the forest data
-	forest := utreexo.NewForest(forestFile)
+	forest = utreexo.NewForest(forestFile)
 
-	return forest, nil
+	return
 }
 
 // restoreForest restores forest fields based off the existing forestdata
 // on disk.
-func restoreForest() (*utreexo.Forest, error) {
-
-	var forest *utreexo.Forest
+func restoreForest() (forest *utreexo.Forest, err error) {
 
 	// Where the forestfile exists
 	forestFile, err := os.OpenFile(
@@ -97,13 +91,11 @@ func restoreForest() (*utreexo.Forest, error) {
 		return nil, err
 	}
 
-	return forest, nil
+	return
 }
 
 // restoreHeight restores height from util.ForestLastSyncedBlockHeightFilePath
-func restoreHeight() (int32, error) {
-
-	var height int32
+func restoreHeight() (height int32, err error) {
 
 	// if there is a heightfile, get the height from that
 	// heightFile saves the last block that was written to ttldb
@@ -121,13 +113,12 @@ func restoreHeight() (int32, error) {
 		}
 		height = util.BtI32(t[:])
 	}
-	return height, nil
+	return
 }
 
 // restoreLastIndexOffsetHeight restores the lastIndexOffsetHeight
-func restoreLastIndexOffsetHeight(offsetFinished chan bool) (int32, error) {
-
-	var lastIndexOffsetHeight int32
+func restoreLastIndexOffsetHeight(offsetFinished chan bool) (
+	lastIndexOffsetHeight int32, err error) {
 
 	// grab the last block height from currentoffsetheight
 	// currentoffsetheight saves the last height from the offsetfile
@@ -150,5 +141,5 @@ func restoreLastIndexOffsetHeight(offsetFinished chan bool) (int32, error) {
 	// to let stopParse() know that it shouldn't delete offsetfile
 	offsetFinished <- true
 
-	return lastIndexOffsetHeight, nil
+	return
 }

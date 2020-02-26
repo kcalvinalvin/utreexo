@@ -133,7 +133,7 @@ func (d *diskForestData) swapHashRange(a, b, w uint64) {
 func (d *diskForestData) size() uint64 {
 	s, err := d.f.Stat()
 	if err != nil {
-		fmt.Errorf("\tWARNING: %s. Returning 0", err.Error())
+		fmt.Printf("\tWARNING: %s. Returning 0", err.Error())
 		return 0
 	}
 	return uint64(s.Size() / leafSize)

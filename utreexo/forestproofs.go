@@ -266,7 +266,8 @@ func (f *Forest) ProveBlock(hs []Hash) (BlockProof, error) {
 	return bp, nil
 }
 
-// VerifyBlockProof :
+// VerifyBlockProof is a wrapper around VerifyBlockProof in blockproofs.go
+// for Forest
 func (f *Forest) VerifyBlockProof(bp BlockProof) bool {
 	ok, _ := VerifyBlockProof(bp, f.GetTops(), f.numLeaves, f.height)
 	return ok

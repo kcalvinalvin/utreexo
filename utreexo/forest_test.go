@@ -10,22 +10,32 @@ func TestForestAddDel(t *testing.T) {
 	numAdds := 10
 	numDels := 5
 
+	// Test 1000 blocks
 	for b := 0; b < 1000; b++ {
-		//  these should stay the same
+		// passing off nil make a forest in memory instead
+		// of on disk
 		f := NewForest(nil) // bottom up modified forest
 
+		// delMap is the Utreexo hashes in the map that
+		// exists and is to be deleted
 		delMap := make(map[uint64]bool)
+
+		// adds are just 32 byte hashes. Represents a
+		// Sha256(txid + index)
 		adds := make([]LeafTXO, numAdds)
+
+		// Create leaves to add
 		for j := range adds {
 			adds[j].Hash[1] = uint8(j)
-			adds[j].Hash[3] = 0xcc
+			//adds[j].Hash[3] = 0xcc
 			delMap[uint64(j)] = true
 		}
 
-		_, err := f.Modify(adds, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		//_, err :=
+		f.Add(adds)
+		//if err != nil {
+		//	t.Fatal(err)
+		//}
 
 		var k int
 		dels := make([]uint64, numDels)
@@ -37,7 +47,7 @@ func TestForestAddDel(t *testing.T) {
 			}
 		}
 
-		err = f.removev4(dels) // was v2
+		err := f.removev4(dels) // was v2
 		if err != nil {
 			t.Fatal(err)
 		}

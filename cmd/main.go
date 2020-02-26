@@ -9,6 +9,7 @@ import (
 
 	bridge "github.com/mit-dci/utreexo/cmd/bridgenode"
 	"github.com/mit-dci/utreexo/cmd/csn"
+	"github.com/pkg/profile"
 )
 
 var msg = `
@@ -28,6 +29,7 @@ var testnetCmd = optionCmd.Bool("testnet", false,
 	"Target testnet instead of mainnet. Usage: testnet=true")
 
 func main() {
+	defer profile.Start().Stop()
 	// check if enough arguments were given
 	if len(os.Args) < 2 {
 		fmt.Println(msg)

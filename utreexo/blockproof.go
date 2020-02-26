@@ -120,7 +120,6 @@ func VerifyBlockProof(
 		fmt.Printf("VerifyBlockProof Reconstruct ERROR %s\n", err.Error())
 		return false, proofmap
 	}
-
 	//	fmt.Printf("Reconstruct complete\n")
 	topposs, topheights := getTopsReverse(numLeaves, height)
 
@@ -144,7 +143,7 @@ func VerifyBlockProof(
 	var left, right uint64
 	// iterate through height
 
-	for h := uint8(0); h < height; h++ {
+	for h := uint8(0); h <= height; h++ {
 		// iterate through tagged positions in this row
 
 		for len(tagRow) > 0 {
