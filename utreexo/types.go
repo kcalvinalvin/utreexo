@@ -4,9 +4,13 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"math/rand"
+
+	"github.com/btcsuite/btcd/wire"
 )
 
-// Hash :
+// Hash is just [32]byte array
+// Used to represent Block Headers and other
+// variables that use SHA256
 type Hash [32]byte
 
 // Prefix, for printfs
@@ -44,13 +48,22 @@ type Node struct {
 	Val Hash
 }
 
-// LeafTXOs have a hash and a expiry date (block when that utxo gets used)
+// LeafTx represents the a Tx with Utreexo specific
+// fields.
+type LeafTx struct {
+	msgTx    *wire.MsgTx // Underlying transaction
+	txid     Hash        // The TXID of the transaction as a whole
+	Remember bool        // For whether this LeafTx should be cached or not
+	Duration int32       // How long a transaction lasts until it's spent
+}
+
+// LeafTXO represents a single transaction with additional fields
+// for Utreexo caching purposes
 type LeafTXO struct {
-	Hash
-	Duration int32
-	// During ibdsim, this will dictate whether it is saved to
-	// the memory or not.
-	Remember bool // this leaf will be deleted soon, remember it
+	Hash // The TXID of the transaction as a whole
+	//index    int32 // txindex of the txo
+	Duration int32 // How long this txo lasts until it's spent
+	Remember bool  // For whether this LeafTXO should be cached or not
 }
 
 // Parent gets you the merkle parent.  So far no committing to height.
