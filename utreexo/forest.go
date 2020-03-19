@@ -411,10 +411,10 @@ func (f *Forest) reMap(destHeight uint8) error {
 	}
 	// I don't think you ever need to remap down.  It really doesn't
 	// matter.  Something to program someday if you feel like it for fun.
-	fmt.Printf("size is %d\n", f.data.size())
+	//fmt.Printf("size is %d\n", f.data.size())
 	// height increase
 	f.data.resize(2 << destHeight)
-	fmt.Printf("size is %d\n", f.data.size())
+	//fmt.Printf("size is %d\n", f.data.size())
 	pos := uint64(1 << destHeight) // leftmost position of row 1
 	reach := pos >> 1              // how much to next row up
 	// start on row 1, row 0 doesn't move
@@ -565,6 +565,13 @@ func (f *Forest) GetTops() []Hash {
 	}
 
 	return tops
+}
+
+// FindLeaf finds a leave from the positionMap
+// returns
+func (f *Forest) FindLeaf(leaf Hash) bool {
+	_, found := f.positionMap[leaf.Mini()]
+	return found
 }
 
 // Stats :
