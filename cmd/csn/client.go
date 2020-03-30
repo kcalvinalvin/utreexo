@@ -16,15 +16,16 @@ import (
 func IBDClient(net wire.BitcoinNet,
 	offsetfile string, ttldb string, sig chan bool) error {
 
-	//Channel to alert the main loop to break
+	// Channel to alert the main loop to break
 	stopGoing := make(chan bool, 1)
 
-	//Channel to alert stopTxottl it's ok to exit
+	// Channel to alert stopTxottl it's ok to exit
 	done := make(chan bool, 1)
 
 	go stopRunIBD(sig, stopGoing, done)
 
-	// Check if the blk*.dat file given is a testnet/mainnet/regtest file corresponding to net
+	// Check if the blk*.dat file given is a testnet/mainnet/regtest
+	// file corresponding to net
 	util.CheckNet(net)
 
 	// open database
@@ -95,11 +96,6 @@ func IBDClient(net wire.BitcoinNet,
 				height+1, totalTXOAdded, totalDels, p.Stats(),
 				plustime.Seconds(), time.Now().Sub(starttime).Seconds())
 		}
-		/*
-			if height%100000 == 0 {
-				fmt.Printf(MemStatString(fname))
-			}
-		*/
 
 		//Check if stopSig is no longer false
 		//stop = true makes the loop exit
