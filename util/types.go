@@ -66,13 +66,6 @@ type RawHeaderData struct {
 	Offset [4]byte
 }
 
-// BlockAndRev is a regular block and a rev block stuck together
-type BlockAndRev struct {
-	Height int32
-	Rev    RevBlock
-	Blk    wire.MsgBlock
-}
-
 // UBlock is a regular block, with Udata stuck on
 type UBlock struct {
 	Block     wire.MsgBlock

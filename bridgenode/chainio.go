@@ -23,10 +23,6 @@ func createOffsetData(
 		return 0, err
 	}
 
-	err = util.BuildRevOffsetFile()
-	if err != nil {
-		return 0, err
-	}
 	lastIndexOffsetHeight, err = buildOffsetFile(*hash)
 	if err != nil {
 		return 0, err

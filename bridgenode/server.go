@@ -76,7 +76,7 @@ func pushBlocks(c net.Conn) {
 			return
 		}
 
-		blk, err := util.GetRawBlockFromFile(curHeight, util.OffsetFilePath)
+		blk, _, err := GetRawBlockFromFile(curHeight, util.OffsetFilePath)
 		if err != nil {
 			fmt.Printf("pushBlocks GetRawBlockFromFile %s\n", err.Error())
 			return

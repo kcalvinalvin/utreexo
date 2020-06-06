@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/mit-dci/utreexo/util"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 // buildOffsetFile builds an offsetFile which acts as an index
@@ -31,6 +32,8 @@ func buildOffsetFile(tip util.Hash) (int32, error) {
 		panic(err)
 	}
 
+	lvdb := OpenIndexFile()
+
 	var lastOffsetHeight int32
 
 	defer offsetFile.Close()
@@ -49,7 +52,7 @@ func buildOffsetFile(tip util.Hash) (int32, error) {
 			panic(err)
 		}
 		tip, lastOffsetHeight, err = writeBlockOffset(
-			rawheaders, nextMap, offsetFile, lastOffsetHeight, tip)
+			rawheaders, nextMap, offsetFile, lastOffsetHeight, tip, lvdb)
 		if err != nil {
 			panic(err)
 		}
@@ -215,7 +218,8 @@ func writeBlockOffset(
 	nextMap map[[32]byte]util.RawHeaderData, //  Map to save the current block hash
 	offsetFile *os.File, //                 File to save the sorted blocks and locations to
 	tipnum int32, //                          Current block it's on
-	tip util.Hash) ( //                Current hash of the block it's on
+	tip util.Hash, //                Current hash of the block it's on
+	lvdb *leveldb.DB) ( // index/ in bitcoin core's datadir
 	util.Hash, int32, error) {
 
 	for _, b := range blockHeaders {
@@ -237,6 +241,14 @@ func writeBlockOffset(
 		offsetFile.Write(b.FileNum[:])
 		offsetFile.Write(b.Offset[:])
 
+		// grab bitcoin core block index info
+		cbIndex := GetBlockIndexInfo(b.CurrentHeaderHash, lvdb)
+		undoOffset := make([]byte, 4)
+		binary.BigEndian.PutUint32(undoOffset, cbIndex.UndoPos)
+
+		// write undoblock offset
+		offsetFile.Write(undoOffset)
+
 		// set the tip to current block's hash
 		tip = b.CurrentHeaderHash
 		tipnum++
@@ -250,6 +262,15 @@ func writeBlockOffset(
 			// offset the block can be found at
 			offsetFile.Write(stashedBlock.FileNum[:])
 			offsetFile.Write(stashedBlock.Offset[:])
+
+			// grab bitcoin core block index info
+			sCbIndex := GetBlockIndexInfo(stashedBlock.CurrentHeaderHash, lvdb)
+
+			sUndoOffset := make([]byte, 4)
+			binary.BigEndian.PutUint32(sUndoOffset, sCbIndex.UndoPos)
+
+			// write undoblock offset
+			offsetFile.Write(sUndoOffset)
 
 			// set the tip to current block's hash
 			tip = stashedBlock.CurrentHeaderHash

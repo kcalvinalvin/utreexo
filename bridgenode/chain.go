@@ -26,8 +26,7 @@ func initBridgeNodeState(
 	// If either is incomplete or not complete, they're both removed and made
 	// anew
 	// Check if the offsetfiles for both rev*.dat and blk*.dat are present
-	if util.HasAccess(util.OffsetFilePath) && util.HasAccess(
-		util.RevOffsetFilePath) {
+	if util.HasAccess(util.OffsetFilePath) {
 		lastIndexOffsetHeight, err = restoreLastIndexOffsetHeight(
 			offsetFinished)
 		if err != nil {
