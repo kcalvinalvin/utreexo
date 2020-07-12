@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime/pprof"
 	"sort"
 	"time"
 
@@ -71,7 +72,15 @@ func UblockNetworkReader(
 		panic(err)
 	}
 
+	// Add goroutine here. We're sitting and waiting for the block to be Deserialized
+	// PRODUCER
 	for ; ; curHeight++ {
+		if curHeight == 80000 {
+			fmt.Println("80,000 blocks verified")
+			//trace.Stop()
+			pprof.StopCPUProfile()
+			os.Exit(0)
+		}
 		var ub UBlock
 		err = ub.Deserialize(con)
 		if err != nil {
@@ -85,6 +94,8 @@ func UblockNetworkReader(
 		ub.Height = curHeight
 		blockChan <- ub
 	}
+
+	// CONSUMER
 }
 
 // GetUDataFromFile reads the proof data from proof.dat and proofoffset.dat

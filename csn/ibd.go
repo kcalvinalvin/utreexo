@@ -39,13 +39,28 @@ func (c *Csn) IBDThread(sig chan bool) {
 	go util.UblockNetworkReader(
 		ublockQueue, "127.0.0.1:8338", c.CurrentHeight, lookahead)
 
+	/*
+		valChan := make(chan *util.TxValidateItems, 20)
+		errChan := make(chan error, 20)
+		quitChan := make(chan struct{})
+		// Channels started should be 3 times that of how many cpu
+		// threads there are
+		maxGoRoutines := runtime.NumCPU() * 3
+		if maxGoRoutines <= 0 {
+			maxGoRoutines = 1
+		}
+
+		for i := 0; i < maxGoRoutines; i++ {
+			go util.NewTxValidator(valChan, errChan, quitChan)
+		}
+	*/
+
 	var plustime time.Duration
 	starttime := time.Now()
 
 	// bool for stopping the below for loop
 	var stop bool
 	for ; !stop; c.CurrentHeight++ {
-
 		blocknproof, open := <-ublockQueue
 		if !open {
 			sig <- true
@@ -54,6 +69,7 @@ func (c *Csn) IBDThread(sig chan bool) {
 
 		err := putBlockInPollard(blocknproof,
 			&totalTXOAdded, &totalDels, plustime, &c.pollard)
+		//valChan, errChan)
 		if err != nil {
 			panic(err)
 		}
@@ -106,6 +122,8 @@ func putBlockInPollard(
 	totalTXOAdded, totalDels *int,
 	plustime time.Duration,
 	p *accumulator.Pollard) error {
+	//valChan chan *util.TxValidateItems,
+	//errChan chan error) error {
 
 	plusstart := time.Now()
 
