@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"runtime/pprof"
 	"sort"
 	"time"
 
@@ -72,17 +71,21 @@ func UblockNetworkReader(
 		panic(err)
 	}
 
-	// Add goroutine here. We're sitting and waiting for the block to be Deserialized
-	// PRODUCER
+	// TODO goroutines for only the Deserialize part might be nice.
+	// Need to sort the blocks though if you're doing that
 	for ; ; curHeight++ {
-		if curHeight == 80000 {
-			fmt.Println("80,000 blocks verified")
-			//trace.Stop()
-			pprof.StopCPUProfile()
-			os.Exit(0)
+		if err != nil {
+			panic(err)
 		}
+		block, err := ReadBlock(con)
+		if err != nil {
+			fmt.Println(err)
+			panic(err)
+		}
+
 		var ub UBlock
-		err = ub.Deserialize(con)
+		bReader := bytes.NewReader(block)
+		err = ub.Deserialize(bReader)
 		if err != nil {
 			if err == io.EOF {
 				close(blockChan)
@@ -90,12 +93,30 @@ func UblockNetworkReader(
 			}
 			panic(err)
 		}
-
 		ub.Height = curHeight
 		blockChan <- ub
 	}
+}
 
-	// CONSUMER
+func ReadBlock(con net.Conn) ([]byte, error) {
+	// 4 bytes size of the payload is sent over
+	var sizeb [4]byte
+
+	_, err := io.ReadFull(con, sizeb[:])
+	if err != nil {
+		fmt.Println("size read err: ", err)
+		return nil, err
+	}
+
+	size := binary.BigEndian.Uint32(sizeb[:])
+	block := make([]byte, size)
+
+	_, err = io.ReadFull(con, block)
+	if err != nil {
+		fmt.Println("block read err: ", err)
+		return nil, err
+	}
+	return block, nil
 }
 
 // GetUDataFromFile reads the proof data from proof.dat and proofoffset.dat
