@@ -162,13 +162,13 @@ func (ub *UBlock) CheckBlock(outskip []uint32) bool {
 	}
 
 	var wg sync.WaitGroup
+	wg.Add(len(ub.Block.Transactions) - 1) // subtract coinbase
 	for txnum, tx := range ub.Block.Transactions {
 		if txnum == 0 {
 			//txonum += outputsInTx
 			continue // skip checks for coinbase TX for now.  Or maybe it'll work?
 		}
 		utilTx := btcutil.NewTx(tx)
-		wg.Add(1)
 		go func(w *sync.WaitGroup, tx *btcutil.Tx) {
 			//outputsInTx := uint32(len(tx.TxOut))
 
