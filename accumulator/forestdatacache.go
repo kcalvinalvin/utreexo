@@ -388,6 +388,9 @@ func (d *cacheForestData) close() {
 	flushCacheToDisk(d)
 }
 
+func (d *cacheForestData) setRow(row uint8) {
+}
+
 func flushCacheToDisk(d *cacheForestData) {
 	// flush the entire cache to disk.
 	cacheRanges := d.cache.flush(d.hashCount)

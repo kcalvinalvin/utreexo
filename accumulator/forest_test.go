@@ -3,6 +3,7 @@ package accumulator
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"reflect"
 	"sort"
 	"testing"
@@ -10,7 +11,7 @@ import (
 )
 
 func TestDeleteReverseOrder(t *testing.T) {
-	f := NewForest(nil, false)
+	f := NewForest(nil, false, "")
 	leaf1 := Leaf{Hash: Hash{1}}
 	leaf2 := Leaf{Hash: Hash{2}}
 	_, err := f.Modify([]Leaf{leaf1, leaf2}, nil)
@@ -28,7 +29,7 @@ func TestForestAddDel(t *testing.T) {
 
 	numAdds := uint32(10)
 
-	f := NewForest(nil, false)
+	f := NewForest(nil, false, "")
 
 	sc := NewSimChain(0x07)
 	sc.lookahead = 400
@@ -51,8 +52,139 @@ func TestForestAddDel(t *testing.T) {
 	}
 }
 
+func TestCowForestAddDelComp(t *testing.T) {
+	numAdds := uint32(10)
+
+	tmpDir := os.TempDir()
+	cowF := NewForest(nil, false, tmpDir)
+	memF := NewForest(nil, false, "")
+
+	sc := NewSimChain(0x07)
+	sc.lookahead = 400
+
+	for b := 0; b <= 10000; b++ {
+		adds, _, delHashes := sc.NextBlock(numAdds)
+
+		cowBP, err := cowF.ProveBatch(delHashes)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		memBP, err := memF.ProveBatch(delHashes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(cowBP, memBP) {
+			fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
+			fmt.Printf("nl %d %s\n", memF.numLeaves, memF.ToString())
+			t.Fatal("cowBP and memBP are not equal")
+		}
+
+		cowBP.SortTargets()
+		_, err = cowF.Modify(adds, cowBP.Targets)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		memBP.SortTargets()
+		_, err = memF.Modify(adds, memBP.Targets)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	equal, wrongPos, wrongPosH := checkIfEqual(cowF, memF)
+	if !equal {
+		cowFile, err := os.OpenFile("cowlog",
+			os.O_CREATE|os.O_RDWR, 666)
+		if err != nil {
+			panic(err)
+		}
+		cowstring := fmt.Sprintf("nl %d %s\n", cowF.numLeaves, cowF.AlwaysToString())
+		cowFile.WriteString(cowstring)
+
+		memFile, err := os.OpenFile("memlog",
+			os.O_CREATE|os.O_RDWR, 666)
+		if err != nil {
+			panic(err)
+		}
+
+		memstring := fmt.Sprintf("nl %d %s\n", memF.numLeaves, memF.AlwaysToString())
+		memFile.WriteString(memstring)
+		s := fmt.Sprintf("forests are not equal\n")
+		s += fmt.Sprintf("forestRows in f: %d\n: ", cowF.rows)
+		s += fmt.Sprintf("wrongPos: %x\n", wrongPos)
+		s += fmt.Sprintf("wrongPosH %x\n", wrongPosH)
+		t.Fatal(s)
+	}
+}
+
+// checkIfEqual checks if the forest differ returns true for equal and if not, returns
+// the positions and the hashes
+func checkIfEqual(cowF, memF *Forest) (bool, []uint64, []Hash) {
+	cowFH := cowF.rows
+	memFH := memF.rows
+
+	if cowFH != memFH {
+		panic("forestRows don't equal")
+	}
+
+	var pos uint8
+	for h := uint8(0); h <= memFH; h++ {
+		rowlen := uint8(1 << (memFH - h))
+
+		for j := uint8(0); j < rowlen; j++ {
+			if cowF.data.size() != memF.data.size() {
+				s := fmt.Sprintf("sizes don't equal"+
+					"cow: %d, mem: %d\n", cowF.data.size(), memF.data.size())
+				panic(s)
+			}
+			ok := memF.data.size() >= uint64(pos)
+			if ok {
+				memH := memF.data.read(uint64(pos))
+				cowH := cowF.data.read(uint64(pos))
+				if memH != cowH {
+					s := fmt.Sprintf("hashes aren't equal at gpos: %d "+"mem: %x cow: %x\n", pos, memH, cowH)
+					panic(s)
+				}
+			}
+			pos++
+		}
+
+	}
+
+	return true, []uint64{}, []Hash{}
+}
+
+func TestCowForestAddDel(t *testing.T) {
+	numAdds := uint32(10)
+
+	tmpDir := os.TempDir()
+	cowF := NewForest(nil, false, tmpDir)
+
+	sc := NewSimChain(0x07)
+	sc.lookahead = 400
+
+	for b := 0; b < 1000; b++ {
+
+		adds, _, delHashes := sc.NextBlock(numAdds)
+
+		cowBP, err := cowF.ProveBatch(delHashes)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		cowBP.SortTargets()
+		_, err = cowF.Modify(adds, cowBP.Targets)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
+	}
+}
+
 func TestForestFixed(t *testing.T) {
-	f := NewForest(nil, false)
+	f := NewForest(nil, false, "")
 	numadds := 5
 	numdels := 3
 	adds := make([]Leaf, numadds)
@@ -83,7 +215,7 @@ func TestForestFixed(t *testing.T) {
 
 // Add 2. delete 1.  Repeat.
 func Test2Fwd1Back(t *testing.T) {
-	f := NewForest(nil, false)
+	f := NewForest(nil, false, "")
 	var absidx uint32
 	adds := make([]Leaf, 2)
 
@@ -162,7 +294,7 @@ func addDelFullBatchProof(nAdds, nDels int) error {
 		return fmt.Errorf("too many deletes")
 	}
 
-	f := NewForest(nil, false)
+	f := NewForest(nil, false, "")
 	adds := make([]Leaf, nAdds)
 
 	for j, _ := range adds {
@@ -199,7 +331,7 @@ func addDelFullBatchProof(nAdds, nDels int) error {
 }
 
 func TestDeleteNonExisting(t *testing.T) {
-	f := NewForest(nil, false)
+	f := NewForest(nil, false, "")
 	deletions := []uint64{0}
 	_, err := f.Modify(nil, deletions)
 	if err == nil {
@@ -213,7 +345,7 @@ func TestSmallRandomForests(t *testing.T) {
 
 	for i := 0; i < 1000; i++ {
 		// The forest instance to test in this iteration of the loop
-		f := NewForest(nil, false)
+		f := NewForest(nil, false, "")
 
 		// We use 'quick' to generate testing data:
 		// we interpret the keys as leaf hashes and the values

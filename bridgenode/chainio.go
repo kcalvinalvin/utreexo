@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/mit-dci/utreexo/accumulator"
@@ -37,9 +38,17 @@ func createOffsetData(
 }
 
 // createForest initializes forest
-func createForest(inRam, cached bool) (forest *accumulator.Forest, err error) {
+func createForest(inRam, cached bool, cowForest bool) (
+	forest *accumulator.Forest, err error) {
+
 	if inRam {
-		forest = accumulator.NewForest(nil, false)
+		forest = accumulator.NewForest(nil, false, "")
+		return
+	}
+
+	if cowForest {
+		path := filepath.Join(util.ForestDirPath + "/cow/")
+		forest = accumulator.NewForest(nil, false, path)
 		return
 	}
 
@@ -51,7 +60,7 @@ func createForest(inRam, cached bool) (forest *accumulator.Forest, err error) {
 	}
 
 	// Restores all the forest data
-	forest = accumulator.NewForest(forestFile, cached)
+	forest = accumulator.NewForest(forestFile, cached, "")
 
 	return
 }
@@ -60,20 +69,36 @@ func createForest(inRam, cached bool) (forest *accumulator.Forest, err error) {
 // on disk.
 func restoreForest(
 	forestFilename, miscFilename string,
-	inRam, cached bool) (forest *accumulator.Forest, err error) {
+	inRam, cached, cow bool) (forest *accumulator.Forest, err error) {
 
-	// Where the forestfile exists
-	forestFile, err := os.OpenFile(forestFilename, os.O_RDWR, 0400)
-	if err != nil {
-		return
-	}
-	// Where the misc forest data exists
-	miscForestFile, err := os.OpenFile(miscFilename, os.O_RDONLY, 0400)
-	if err != nil {
-		return
-	}
+	if cow {
+		var miscForestFile *os.File
+		// Where the misc forest data exists
+		miscForestFile, err = os.OpenFile(miscFilename, os.O_RDONLY, 0400)
+		if err != nil {
+			return nil, err
+		}
+		cowPath := filepath.Join(util.ForestDirPath + "/cow/")
+		forest, err = accumulator.RestoreForest(
+			miscForestFile, nil, false, false, cowPath)
+	} else {
 
-	forest, err = accumulator.RestoreForest(miscForestFile, forestFile, inRam, cached)
+		var forestFile *os.File
+		var miscForestFile *os.File
+		// Where the forestfile exists
+		forestFile, err = os.OpenFile(forestFilename, os.O_RDWR, 0400)
+		if err != nil {
+			return
+		}
+		// Where the misc forest data exists
+		miscForestFile, err = os.OpenFile(miscFilename, os.O_RDONLY, 0400)
+		if err != nil {
+			return
+		}
+
+		forest, err = accumulator.RestoreForest(
+			miscForestFile, forestFile, inRam, cached, "")
+	}
 	return
 }
 
