@@ -2,6 +2,7 @@ package accumulator
 
 import (
 	"fmt"
+	"math"
 	"math/bits"
 	"sort"
 )
@@ -56,12 +57,8 @@ func detectSubTreeRows(
 // detectRow finds the current row of your node given the node
 // position and the total forest rows.. counts preceding 1 bits.
 func detectRow(position uint64, forestRows uint8) uint8 {
-	marker := uint64(1 << forestRows)
-	var h uint8
-	for h = 0; position&marker != 0; h++ {
-		marker >>= 1
-	}
-	return h
+	x := (uint64(1<<forestRows) | position) &^ uint64(1<<forestRows)
+	return uint8(bits.LeadingZeros64(x) | math.MaxInt64 + 1)
 }
 
 // detectOffset takes a node position and number of leaves in forest, and

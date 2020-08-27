@@ -5,6 +5,74 @@ import (
 	"testing"
 )
 
+func TestDetectRow(t *testing.T) {
+	for i := uint8(0); i < 32; i++ {
+		for j := uint64(0); j < (1 << i); j++ {
+			Orig := detectRowOrig(j, i)
+			New := detectRow(j, i)
+			if Orig != New {
+				fmt.Printf("For row #%d\nOrig: %d\nNew: %d\n", i, Orig, New)
+				t.Fatal("detectRow and detectRowOrig are not the same")
+			}
+		}
+
+	}
+	// Test higher tree rows
+	for i := uint8(33); i <= 63; i++ {
+		// only do 100,000 leaves
+		for j := uint64(0); j < 100000; j++ {
+			Orig := detectRowOrig(j, i)
+			New := detectRow(j, i)
+			if Orig != New {
+				fmt.Printf("For row #%d\nOrig: %d\nNew: %d\n", i, Orig, New)
+				t.Fatal("detectRow and detectRowOrig are not the same")
+			}
+
+		}
+
+	}
+}
+func detectRowOrig(position uint64, forestRows uint8) uint8 {
+	marker := uint64(1 << forestRows)
+	var h uint8
+	for h = 0; position&marker != 0; h++ {
+		marker >>= 1
+	}
+	return h
+}
+
+func BenchmarkDetectRow_One(b *testing.B)     { benchmarkDetectRow(1, b) }
+func BenchmarkDetectRow_Mil(b *testing.B)     { benchmarkDetectRow(1000000, b) }
+func BenchmarkDetectRow_FiveMil(b *testing.B) { benchmarkDetectRow(5000000, b) }
+func BenchmarkDetectRow_TenMil(b *testing.B)  { benchmarkDetectRow(10000000, b) }
+func BenchmarkDetectRow_FifMil(b *testing.B)  { benchmarkDetectRow(50000000, b) }
+
+func BenchmarkOrigDetectRow_One(b *testing.B)     { benchmarkDetectRowOrig(1, b) }
+func BenchmarkOrigDetectRow_Mil(b *testing.B)     { benchmarkDetectRowOrig(1000000, b) }
+func BenchmarkOrigDetectRow_FiveMil(b *testing.B) { benchmarkDetectRowOrig(5000000, b) }
+func BenchmarkOrigDetectRow_TenMil(b *testing.B)  { benchmarkDetectRowOrig(10000000, b) }
+func BenchmarkOrigDetectRow_FifMil(b *testing.B)  { benchmarkDetectRowOrig(50000000, b) }
+
+func benchmarkDetectRow(n uint64, b *testing.B) {
+	for i := uint8(33); i <= 63; i++ {
+		for j := uint64(0); j < n; j++ {
+			detectRow(j, i)
+
+		}
+
+	}
+}
+
+func benchmarkDetectRowOrig(n uint64, b *testing.B) {
+	for i := uint8(33); i <= 63; i++ {
+		for j := uint64(0); j < n; j++ {
+			detectRow(j, i)
+
+		}
+
+	}
+}
+
 func TestTreeRows(t *testing.T) {
 	// Test all the powers of 2
 	for i := uint8(1); i <= 63; i++ {
