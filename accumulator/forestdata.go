@@ -1,6 +1,7 @@
 package accumulator
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
 )
@@ -88,37 +89,28 @@ func (r *ramForestData) close() {
 
 // ********************************************* forest on disk
 
-// FileType represents what type a file on disk can be
-type FileType int
+// Config is for configurations for a CowForest
+type Config struct {
+	// rowPerTreeBlock is the rows a treeBlock holds
+	rowPerTreeBlock uint8
+}
 
-const (
-	// Utxo represents a six-tree which contain the hashes of the UTXOs
-	// A leaf represents the row zero nodes
-	// Example:
-	//
-	// 12
-	// |-------\
-	// 08      09
-	// |---\   |---\
-	// 00  01  02  03 <<-- These nodes are the UTXOs
-	Utxo FileType = iota
+// rowPerTreeBlock is the rows a treeBlock holds
+// 7 is chosen as a tree with height 6 will contain 7rows
+// TODO duplicate of Config
+const rowPerTreeBlock = 7
 
-	// TreeBlock is any tree with 127 leaves that does not contain the
-	// actual hashes of UTXOs
-	TreeBlock
-)
+// extension for the forest files on disk. Stands for, "Utreexo Forest
+// On Disk
+var extension string = ".ufod"
 
 type TreeBlockState int
 
 const (
-	// dirty is the cache bit for treeBlocks that have changed in memory
-	// and thus must be updated in disk
-	dirty TreeBlockState = iota
-
 	// current is if the treeBlock is part of the latest Utreexo forest
 	// state. Necessary as utreexo forest is a copy-on-write and doesn't
 	// delete the old state
-	current
+	current TreeBlockState = iota
 
 	// sparse marks the current treeBlock as having empty nodes
 	sparse
@@ -148,66 +140,95 @@ func Clear(b, flag TreeBlockState) TreeBlockState  { return b &^ flag }
 func Toggle(b, flag TreeBlockState) TreeBlockState { return b ^ flag }
 func Has(b, flag TreeBlockState) bool              { return b&flag != 0 }
 
-// memTable is the cache always in memory for a utreexo forest
-type memTable struct {
-	// treeElement are the utreexo tree
-	treeElement treeElement
+// manifest is the structure saved on disk for loading the current
+// utreexo forest
+// FIXME fix padding
+type manifest struct {
+	currentManifestNum uint64
+	// The current .ufod file number
+	fileNum uint64
+	// currentBlockHash is the latest synced Bitcoin block hash
+	currentBlockHash Hash
 
-	// TreeTable caches
-	cachedTreeTable []treeTable
+	// currentBlockHeight is the latest synced Bitcoin block height
+	currentBlockHeight int32
+
+	// The current allocated rows in forest
+	forestRows uint8
+
+	// count measures the count of the tables on disk based on the row
+	// it's at.
+	// Ex: [6, 1] means that there are 6 0-row treeTables on disk with
+	// one 1-row treeTable
+	count []uint64
 }
 
-func (m *memTable) read(pos uint64, forestRows uint8) (Hash, error) {
-	// Check if stored tree is the lowest
-	if forestRows <= 6 {
-		if pos > 64 {
-			return Hash{}, fmt.Errorf("CowForestError.PosTooBig")
-		} else {
-			hash, _ := m.treeElement.read(pos)
-			return hash, nil
-		}
-	}
-	depth, path, err := getPosition(pos, forestRows)
+// save creates a new manifest version and saves it and removes the old manifest
+// The save is atomic in that only when the save was successful, the
+// old manifest is removed.
+func (m *manifest) save() error {
+	manifestNum := m.currentManifestNum + 1
+
+	fName := fmt.Sprintf("MANIFEST-%d", manifestNum)
+
+	fNewManifest, err := os.OpenFile(fName, os.O_CREATE|os.O_RDWR, 0755)
 	if err != nil {
-		return Hash{}, err
+		return err
 	}
 
-	var leafToReturn treeElement
-	leafToReturn = m.treeElement
-	var hash Hash
-	for i := uint8(0); i <= depth; i++ {
-		hash, leafToReturn = m.treeElement.read(path[i])
-	}
-	return hash, nil
+	buf := make([]byte, 37)
+	binary.LittleEndian.PutUint32(buf, uint32(m.currentBlockHeight))
+	buf = append(buf, m.currentBlockHash[:]...)
+	buf = append(buf, byte(m.forestRows))
 
+	_, err = fNewManifest.Write(buf)
+	if err != nil {
+		return err
+	}
+
+	// Overwrite the current manifest number in CURRENT
+	fCurrent, err := os.OpenFile("CURRENT", os.O_WRONLY, 0655)
+	if err != nil {
+		return err
+	}
+	fNameByteArray := []byte(fName)
+	_, err = fCurrent.WriteAt(fNameByteArray, 0)
+	if err != nil {
+		return err
+	}
+
+	// Remove old manifest
+	fOldName := fmt.Sprintf("MANIFEST-%d", m.currentManifestNum)
+	err = os.Remove(fOldName)
+	if err != nil {
+		// ErrOldManifestNotRemoved
+		return err
+	}
+
+	return nil
+}
+
+// load loades the manifest from the disk
+func (m *manifest) load() error {
+	f, err := os.OpenFile("CURRENT", os.O_RDONLY, 0444)
+	if err != nil {
+		return err
+	}
+	buf := make([]byte, 37)
+	_, err = f.Read(buf)
+	if err != nil {
+		return err
+	}
+
+	m.currentBlockHeight = int32(binary.LittleEndian.Uint32(buf[:3]))
+	copy(m.currentBlockHash[:], buf[4:36])
+	m.forestRows = uint8(buf[37])
+
+	return nil
 }
 
 /*
-func fetchLeaf(index uint64, treeElement treeElement) treeBlockLeaf {
-	check := treeElement.read(index)
-	if check.data != empty {
-		return check
-	}
-}
-*/
-
-/*
-func getGlobalPos(rows uint8, treeblockPos uint64, posInTreeBlock uint64) uint64 {
-	times := uint64(1 << rows)
-	globalPos := times*treeblockPos + posInTreeBlock
-	return globalPos
-}
-*/
-
-/*
-func getPosInTreeBlock(gPos uint64, treeblockPos uint64, rows uint8) uint64 {
-	times := uint64(1 << rows)
-	posInTreeBlock := gPos - (treeblockPos * times)
-	return posInTreeBlock
-}
-*/
-
-// getPosition, given the global position of a leaf and the forestRows, returns
+// getPosition, given the bottom position of a leaf and the forestRows, returns
 // what depth the treeBlock is and the position of the leaf within the treeBlocks.
 // posInTreeBlock starts from the bottom and goes to the top. Will be nil if
 // forestRows is less than or equal to 6
@@ -215,11 +236,6 @@ func getPosInTreeBlock(gPos uint64, treeblockPos uint64, rows uint8) uint64 {
 // posInTreeBlock = [posForSixTree, posForTwelveTree]
 func getPosition(globalPos uint64, forestRows uint8) (
 	treeBlockDepth uint8, posInTreeBlock []uint64, err error) {
-
-	if 1<<forestRows < globalPos {
-		err = fmt.Errorf("position requested is greater than what the tree can hold")
-		return
-	}
 
 	totalLeaves := uint64(1 << forestRows)
 
@@ -241,35 +257,105 @@ func getPosition(globalPos uint64, forestRows uint8) (
 
 	return
 }
+*/
 
+/*
 // getPosInTreeBlock returns the position within a given treeBlock count
 // and the given globalPos
-func getPosInTreeBlock(globalPos uint64, forestRows, treeBlock uint8) uint8 {
-	/*
-		// Find the next power of 2
-		globalPos--
-		globalPos |= globalPos >> 1
-		globalPos |= globalPos >> 2
-		globalPos |= globalPos >> 4
-		globalPos |= globalPos >> 8
-		globalPos |= globalPos >> 16
-		globalPos |= globalPos >> 32
-		globalPos++
-
-		// log2
-		baseRow := uint8(bits.TrailingZeros64(globalPos) & ^int(64))
-		return uint64(baseRow - treeBlock)
-	*/
-
+func getPosInTreeBlock(globalPos uint64, treeBlockNum uint8) uint8 {
 	// prevent overflows
 	if treeBlock >= treeRows(globalPos) {
 		return 0
 	}
 	return treeRows(globalPos) - treeBlock
 }
+*/
 
-type treeElement interface {
-	read(index uint64) (Hash, treeBlock)
+/*
+// getTreeTable grabs the relevant treeBlock in the cached treeTable
+// for a given position
+func getTreeBlock(pos, maxRange, treeBlocks uint64) uint64 {
+	rangePerBlock := uint64(treeBlocks * 64)
+
+	maxRange -= treeBlocks
+	for pos > maxRange {
+		maxRange -= treeBlocks
+		num--
+	}
+
+	return
+}
+*/
+
+// getTreeBlockPos grabs the relevant treeBlock position
+func getTreeBlockPos(pos uint64, forestRows uint8, maxCachedTables int) (
+	treeBlockRow uint8, treeBlockOffset uint64, cached bool) {
+
+	row := detectRow(pos, forestRows)
+
+	treeBlockRow = row / rowPerTreeBlock
+	treeBlockRow = row / 3 // just for testing
+
+	// get position relevant to the row, not the entire forest
+	// ex:
+	// 06
+	// |-------\
+	// 04      05
+	// |---\   |---\
+	// 00  01  02  03
+	//
+	// position 04 -> 00, 05 -> 01, 06 -> 00
+	rowPos := getRowOffset(row, forestRows)
+	offset := pos - rowPos
+
+	leafCount := 1 << forestRows                   // total leaves in the forest
+	nodeCountAtRow := leafCount >> row             // total nodes in this row
+	treeBlockCount := (1 << forestRows) / (1 << 2) // change 2 to the relevant treeBlockRow
+
+	// In a given row, how many leaves go into a treeBlock?
+	// For exmaple, a forest with:
+	// row = 1, rowPerTreeBlock = 3
+	// maxLeafPerTreeBlockAtRow = 2
+	maxLeafPerTreeBlockAtRow := nodeCountAtRow / treeBlockCount
+	treeBlockOffset = offset / uint64(maxLeafPerTreeBlockAtRow)
+
+	cached = uint64(treeBlockCount-maxCachedTables) <= treeBlockOffset
+
+	return
+}
+
+// getRowOffset returns the first position of that row
+// ex:
+// 14
+// |---------------\
+// 12              13
+// |-------\       |-------\
+// 08      09      10      11
+// |---\   |---\   |---\   |---\
+// 00  01  02  03  04  05  06  07
+//
+// 8 = getRowOffset(1, 3)
+// 12 = getRowOffset(2, 3)
+func getRowOffset(row, forestRows uint8) uint64 {
+	var offset uint64
+	leaves := uint64(1 << forestRows)
+
+	for i := uint8(0); i < row; i++ {
+		offset += leaves
+		leaves /= 2
+	}
+	return offset
+}
+
+// getMin grabs the minimum leaf position a TreeTable can hold
+func getMin(max, blockRow uint64, maxCachedTables int) uint64 {
+	stored := uint64(maxCachedTables * 1024)
+	leafRange := uint64(stored * blockRow)
+	return max - leafRange
+}
+
+func getRange(blockRow uint64) uint64 {
+	return uint64(1024 * blockRow)
 }
 
 // treeBlockLeaf is a leaf in any given treeBlock and represents the lowest
@@ -281,88 +367,141 @@ type treeBlockLeaf struct {
 
 // treeBlock is a representation of a row 6 utreexo tree.
 // It contains 127 leaves and 32 bytes of metadata
-// The leaves maybe be a UTXO hash or another treeBlock
+// The leaves can be a UTXO hash or another treeBlock
 type treeBlock struct {
 	// TODO Lots of things we can do with 32 bytes
 	//meta [32]byte
 
-	// offset is the place of this treeBlock within a treeTable on disk
-	// This is part of the 32byte metadata
-	offset uint8
-
 	// row is the row number for the heighest row in this treeBlock
+	// row can only have a value that is a multiple of six, as treeBlocks
+	// are organized into six-row trees
+	//
+	// Ex:
 	// The bottommost treeBlocks in the entire Utreexo tree will have a
-	// row value of 6
+	// row value of 6.
 	row uint8
 
-	// meta is bitflags to represent the state of the treeBlock
+	// maxLeafRange is the max global leaf position this treeBlock can hold
+	// treeBlocks in different rows can have the same maxLeafRange value
+	// Ex: for a 0th six-tree, maxLeafRange = 63, as a 0th six-tree holds
+	// leaf positions 0-63
+	maxLeafRange uint64
+
+	// meta are the bitflags to represent the state of the treeBlock
 	meta TreeBlockState
 
 	// leaves are the utreexo nodes that are either
 	// 1: Hash of a UTXO
 	// 2: Parent hash of two nodes
-	// 3: another treeBlock
 	//
 	// Able to hold up to 64 leaves
 	leaves [127]treeBlockLeaf
 }
 
-// read takes a leaf position of *this* treeBlock and returns the value
-// It checks the memory cache first then goes to disk.
-func (tb *treeBlock) read(pos uint64) (Hash, treeBlock) {
-	if Has(tb.meta, bottom) {
-
+// read takes a global leaf position and returns the Hash
+func (tb *treeBlock) read(pos, blockNum uint64, forestRows uint8) (Hash, error) {
+	row := detectRow(pos, forestRows)
+	if row > tb.row {
+		return Hash{}, fmt.Errorf("requested row greater than this treeBlock contains")
 	}
 
 	return Hash{}, nil
 }
 
 // treeTable is a group of treeBlocks that are sorted on disk
+// A treeTable only contains the treeBlocks that are of the same row
+// The included treeBlocks are sorted then stored onto disk
 type treeTable struct {
-	// Each treeBlock is exactly 4096 bytes. 256 of them are 1 Mebibyte
-	// NOTE 256 was chosen as treeBlock offset of uint8 can store
-	// 256 numbers. uint16 is wasting a quite a few bits
-	cachedTreeBlocks [256]treeBlock
-
-	// The file on disk containing the treeBlocks
-	file *os.File
+	// memTreeBlocks is the treeBlocks that are stored in memory before they are
+	// written to disk. This is helpful as older treeBlocks get less and
+	// less likely to be accessed as stated in 5.7 of the utreexo paper
+	// NOTE 1024 is the current value of stored treeBlocks per treeTable
+	// this value may change/can be changed
+	memTreeBlocks [1024]treeBlock
 }
 
-// cowForest is a wrapper around memTable, treeTable, and treeBlock
-// Needed mostly for compatibility with Forestdata.
 // Shorthand for copy-on-write. Unfortuntely, it doesn't go moo
 type CowForest struct {
-	MemTable  memTable
-	TreeTable treeTable
-	TreeBlock treeBlock
+	// memTreeTables are in-memory treeTables that are not filled and
+	// writen to disk yet.
+	// row denotes the treeTable rows and the column denotes the maxLeafRange
+	memTreeTables [][]treeTable
+
+	// maxCachedTables denotes how many tables to hold before writing to
+	// disk
+	maxCachedTables int
+
+	// currentMaxLeaf holds which leafRange for a treeTable. One value is
+	// stored per treeTable. The highest value is used when there are multiple
+	// cached tables
+	currentMaxLeaf []uint64
+
+	// manifest contains all the necessary metadata for fetching
+	// utreexo nodes
+	manifest manifest
 }
 
-// Read takes a position of a leaf and returns the value of it
-func (cow *CowForest) Read(pos uint64) Hash {
-	/*
-		_, err := cow.TreeTable.read(pos)
-		if err != nil {
-			// TODO really doesn't need to panic though
-			// Modify the ForestData to return an error or handle it
-			// differently
-			panic(err)
-		}
-	*/
-	return Hash{}
+// Initalize returns a CowForest with a maxCachedTables value set
+func Initalize(maxCachedTables int) (*CowForest, error) {
+	// Cache at least 1
+	if maxCachedTables <= 0 {
+		maxCachedTables = 1
+	}
+	cow := CowForest{
+		maxCachedTables: maxCachedTables,
+	}
+	//cow.memTreeTables = make([][]treeTable, 1)
+	return &cow, nil
 }
 
-func (cow *CowForest) write() {
+// Read takes a position and forestRows to return the Hash of that leaf
+func (cow *CowForest) Read(pos uint64, forestRows uint8) (Hash, error) {
+	// Steps for Read go as such:
+	//
+	// 1. Fetch the relevant treeTable/treeBlock
+	// 	a. Check if it's in memory. If not, go to disk
+	// 2. Fetch the relevant treeBlock
+	// 3. Fetch the leaf
 
+	treeBlockRow, offset, cached := getTreeBlockPos(
+		pos, forestRows, cow.maxCachedTables)
+
+	if cached {
+		treeBlockCount := (1 << forestRows) / (1 << 6)
+		of := offset - uint64(treeBlockCount-cow.maxCachedTables)
+		table := cow.memTreeTables[treeBlockRow][of]
+		fmt.Println(table)
+	}
+
+	return Hash{}, nil
 }
 
-// GetSnapshot returns a snapshot of the forest in a given height
-func (cow *CowForest) GetSnapshot(blockHeight int32) *CowForest {
+// Write changes the in-memory representation of the relevant treeBlock
+// NOTE The treeBlocks on disk are not changed. Commit must be called for that
+func (cow *CowForest) Write() error {
+	return nil
+}
+
+// Load will load the existing forest from the disk given a path
+func (cow *CowForest) Load(path string) error {
+	return nil
+}
+
+// GetSnapshot returns a snapshot of the forest in a given height and blockHash
+func (cow *CowForest) GetSnapshot(blockHeight int32, hash Hash) *CowForest {
 	// TODO placeholder
 	return &CowForest{}
 }
 
-// Flush writes everything to the disk
-func (cow *CowForest) Flush() {
+// Commit makes writes to the disk and sets the forest to point to the new
+// treeBlocks. The new forest state is saved to disk only when Commit is called
+func (cow *CowForest) Commit() error {
+	return nil
+}
+
+// Clean removes all the stale treeTables from the disk
+func (cow *CowForest) Clean() error {
+	return nil
 }
 
 type diskForestData struct {
