@@ -1,9 +1,13 @@
 package accumulator
 
 import (
+	"bufio"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 )
 
 // leafSize is a [32]byte hash (sha256).
@@ -96,9 +100,14 @@ type Config struct {
 }
 
 // rowPerTreeBlock is the rows a treeBlock holds
-// 7 is chosen as a tree with height 6 will contain 7rows
+// 7 is chosen as a tree with height 6 will contain 7 rows (row 0 to row 6)
 // TODO duplicate of Config
 const rowPerTreeBlock = 7
+
+// This is the same concept as forestRows, except for treeBlocks.
+// Fixed as a treeBlockRow cannot increase. You just make another treeBlock if the
+// current one isn't enough.
+const treeBlockRows = 6
 
 // extension for the forest files on disk. Stands for, "Utreexo Forest
 // On Disk
@@ -119,38 +128,28 @@ const (
 	bottom
 )
 
-type CowForestError int
-
-const (
-	PosTooBig CowForestError = iota
+var (
+	ErrorCorruptManifest = errors.New("Manifest is corrupted. Recovery needed")
 )
 
-// Map of ErrorCode values back to their constant names for pretty printing.
-var errorCodeStrings = map[CowForestError]string{
-	PosTooBig: "Position too big",
-}
-
-type RuleError struct {
-	ErrorCode   CowForestError // Describes the kind of error
-	Description string         // Human readable description of the issue
-}
-
-func Set(b, flag TreeBlockState) TreeBlockState    { return b | flag }
-func Clear(b, flag TreeBlockState) TreeBlockState  { return b &^ flag }
-func Toggle(b, flag TreeBlockState) TreeBlockState { return b ^ flag }
-func Has(b, flag TreeBlockState) bool              { return b&flag != 0 }
+func errorCorruptManifest() error { return ErrorCorruptManifest }
 
 // manifest is the structure saved on disk for loading the current
 // utreexo forest
 // FIXME fix padding
 type manifest struct {
+	// The number following 'MANIFEST'
+	// A new one will be written on every db open
 	currentManifestNum uint64
-	// The current .ufod file number
-	fileNum uint64
-	// currentBlockHash is the latest synced Bitcoin block hash
+
+	// The current .ufod file number. This is incremented on every
+	// new treeTable
+	fileNum int64
+
+	// The latest synced Bitcoin block hash
 	currentBlockHash Hash
 
-	// currentBlockHeight is the latest synced Bitcoin block height
+	// The latest synced Bitcoin block height
 	currentBlockHeight int32
 
 	// The current allocated rows in forest
@@ -160,7 +159,22 @@ type manifest struct {
 	// it's at.
 	// Ex: [6, 1] means that there are 6 0-row treeTables on disk with
 	// one 1-row treeTable
+	// TODO Maybe this isn't needed
 	count []uint64
+
+	// location holds the on-disk fileNum for the treeTables
+	// -1 for in-memory tables
+	location [][]int64
+
+	// staleFiles are the files that are not part of the latest forest state
+	// these should be cleaned up.
+	staleFiles []int64
+}
+
+type treeBlockPos struct {
+	//
+	row    uint8
+	offset uint64
 }
 
 // save creates a new manifest version and saves it and removes the old manifest
@@ -260,21 +274,9 @@ func getPosition(globalPos uint64, forestRows uint8) (
 */
 
 /*
-// getPosInTreeBlock returns the position within a given treeBlock count
-// and the given globalPos
-func getPosInTreeBlock(globalPos uint64, treeBlockNum uint8) uint8 {
-	// prevent overflows
-	if treeBlock >= treeRows(globalPos) {
-		return 0
-	}
-	return treeRows(globalPos) - treeBlock
-}
-*/
-
-/*
 // getTreeTable grabs the relevant treeBlock in the cached treeTable
 // for a given position
-func getTreeBlock(pos, maxRange, treeBlocks uint64) uint64 {
+func getTreeTable(pos, maxRange, treeBlocks uint64) uint64 {
 	rangePerBlock := uint64(treeBlocks * 64)
 
 	maxRange -= treeBlocks
@@ -287,14 +289,28 @@ func getTreeBlock(pos, maxRange, treeBlocks uint64) uint64 {
 }
 */
 
-// getTreeBlockPos grabs the relevant treeBlock position
+// getTreeBlockPos grabs the relevant treeBlock position.
 func getTreeBlockPos(pos uint64, forestRows uint8, maxCachedTables int) (
-	treeBlockRow uint8, treeBlockOffset uint64, cached bool) {
+	treeBlockRow uint8, treeBlockOffset uint64, err error) {
+
+	rowPerTreeBlock := uint8(7)
+	TreeBlockRows := uint8(6)
+
+	maxPossiblePosition := getRowOffset(forestRows, forestRows)
+	if pos > maxPossiblePosition {
+		err = fmt.Errorf("Position requested is more than the forest can hold")
+		return
+	}
 
 	row := detectRow(pos, forestRows)
 
+	// treeBlockRow is the "row" representation of a treeBlock forestRows
+	// treeBlockRow of 0 indicates that it's the bottommost treeBlock.
+	// Our current version has forestRows of 6 for the bottommost and 13
+	// for the treeBlock above that. This is as there are 7 rows per treeBlock
+	// ex: 0~6, 7~13, 14~20
 	treeBlockRow = row / rowPerTreeBlock
-	treeBlockRow = row / 3 // just for testing
+	//treeBlockRow = row / 3 // just for testing
 
 	// get position relevant to the row, not the entire forest
 	// ex:
@@ -308,18 +324,37 @@ func getTreeBlockPos(pos uint64, forestRows uint8, maxCachedTables int) (
 	rowPos := getRowOffset(row, forestRows)
 	offset := pos - rowPos
 
-	leafCount := 1 << forestRows                   // total leaves in the forest
-	nodeCountAtRow := leafCount >> row             // total nodes in this row
-	treeBlockCount := (1 << forestRows) / (1 << 2) // change 2 to the relevant treeBlockRow
+	leafCount := 1 << forestRows // total leaves in the forest
+	//nodeCountAtRow := leafCount >> row // total nodes in this row
+	//treeBlockCountAtRow := nodeCountAtRow / (1 << 2) // change 2 to the relevant forestRows
+	nodeCountAtTreeBlockRow := leafCount >> (treeBlockRow * rowPerTreeBlock) // total nodes in this row
+	fmt.Println("nodeCountAtTreeBlockRow:", nodeCountAtTreeBlockRow)
+
+	// If there are less nodes at row than a treeBlock holds, it means that there
+	// are empty leaves in that single treeBlock
+	var treeBlockCountAtRow int
+	if nodeCountAtTreeBlockRow < (1 << TreeBlockRows) {
+		treeBlockCountAtRow = 1
+	} else {
+
+		treeBlockCountAtRow = nodeCountAtTreeBlockRow / (1 << TreeBlockRows) // change 2 to the relevant forestRows
+	}
+	fmt.Println("treeBlockCountAtRow:", treeBlockCountAtRow)
 
 	// In a given row, how many leaves go into a treeBlock?
 	// For exmaple, a forest with:
 	// row = 1, rowPerTreeBlock = 3
 	// maxLeafPerTreeBlockAtRow = 2
-	maxLeafPerTreeBlockAtRow := nodeCountAtRow / treeBlockCount
+	//
+	// another would be
+	// row = 0, rowPerTreeBlock = 3
+	// maxLeafPerTreeBlockAtRow = 4
+	maxLeafPerTreeBlockAtRow := nodeCountAtTreeBlockRow / treeBlockCountAtRow
+	fmt.Println("maxLeafPerTreeBlockAtRow", maxLeafPerTreeBlockAtRow)
 	treeBlockOffset = offset / uint64(maxLeafPerTreeBlockAtRow)
 
-	cached = uint64(treeBlockCount-maxCachedTables) <= treeBlockOffset
+	// TODO is this needed?? Like as in, is it worth fixing beause it's broken
+	//cached = uint64(treeBlockCountAtRow-maxCachedTables) <= treeBlockOffset
 
 	return
 }
@@ -345,6 +380,26 @@ func getRowOffset(row, forestRows uint8) uint64 {
 		leaves /= 2
 	}
 	return offset
+}
+
+// Translate a global position to its local position.
+func gPosToLocPos(gPos, offset uint64, treeBlockRow, forestRows uint8) (
+	uint8, uint64) {
+
+	row := detectRow(gPos, forestRows)
+	rOffset := getRowOffset(row, forestRows)
+
+	// the position relevant to the row
+	rowPos := gPos - rOffset
+
+	treeBlockLeafCount := 1 << treeBlockRows
+	rowLeafCount := treeBlockLeafCount / int(row+1) // +1 beause you can have a 0th row
+
+	locPos := rowPos / uint64(rowLeafCount/2)
+	locRow := row - (treeBlockRows * treeBlockRow)
+
+	return locRow, locPos
+
 }
 
 // getMin grabs the minimum leaf position a TreeTable can hold
@@ -395,7 +450,7 @@ type treeBlock struct {
 	// 2: Parent hash of two nodes
 	//
 	// Able to hold up to 64 leaves
-	leaves [127]treeBlockLeaf
+	leaves [127]Hash
 }
 
 // read takes a global leaf position and returns the Hash
@@ -408,10 +463,20 @@ func (tb *treeBlock) read(pos, blockNum uint64, forestRows uint8) (Hash, error) 
 	return Hash{}, nil
 }
 
+type treeTableState int
+
+const (
+	inMemory treeTableState = iota
+)
+
 // treeTable is a group of treeBlocks that are sorted on disk
 // A treeTable only contains the treeBlocks that are of the same row
 // The included treeBlocks are sorted then stored onto disk
 type treeTable struct {
+	// bitflags for the treeTable state
+	state treeTableState
+
+	treeBlockRow uint8
 	// memTreeBlocks is the treeBlocks that are stored in memory before they are
 	// written to disk. This is helpful as older treeBlocks get less and
 	// less likely to be accessed as stated in 5.7 of the utreexo paper
@@ -422,10 +487,14 @@ type treeTable struct {
 
 // Shorthand for copy-on-write. Unfortuntely, it doesn't go moo
 type CowForest struct {
-	// memTreeTables are in-memory treeTables that are not filled and
-	// writen to disk yet.
+	// cachedTreeTables are cached when Read on CowForest is called
+	// TODO empty these after a certain block or something
+	cachedTreeTables map[int64]treeTable
+
+	// pendingTreeTables are in-memory treeTables that are not filled/committed
+	// and writen to disk yet.
 	// row denotes the treeTable rows and the column denotes the maxLeafRange
-	memTreeTables [][]treeTable
+	pendingTreeTables [][]treeTable
 
 	// maxCachedTables denotes how many tables to hold before writing to
 	// disk
@@ -439,6 +508,9 @@ type CowForest struct {
 	// manifest contains all the necessary metadata for fetching
 	// utreexo nodes
 	manifest manifest
+
+	// fBasePath is the base directory for the .ufod files
+	fBasePath string
 }
 
 // Initalize returns a CowForest with a maxCachedTables value set
@@ -450,6 +522,7 @@ func Initalize(maxCachedTables int) (*CowForest, error) {
 	cow := CowForest{
 		maxCachedTables: maxCachedTables,
 	}
+	cow.cachedTreeTables = make(map[int64]treeTable)
 	//cow.memTreeTables = make([][]treeTable, 1)
 	return &cow, nil
 }
@@ -463,15 +536,42 @@ func (cow *CowForest) Read(pos uint64, forestRows uint8) (Hash, error) {
 	// 2. Fetch the relevant treeBlock
 	// 3. Fetch the leaf
 
-	treeBlockRow, offset, cached := getTreeBlockPos(
+	treeBlockRow, offset, err := getTreeBlockPos(
 		pos, forestRows, cow.maxCachedTables)
-
-	if cached {
-		treeBlockCount := (1 << forestRows) / (1 << 6)
-		of := offset - uint64(treeBlockCount-cow.maxCachedTables)
-		table := cow.memTreeTables[treeBlockRow][of]
-		fmt.Println(table)
+	if err != nil {
+		return Hash{}, err
 	}
+
+	// grab the treeTable location
+	location := cow.manifest.location[treeBlockRow][offset]
+
+	// location of -1 means that it's in memory
+	if location < 0 {
+		/*
+			table := cow.memTreeTables[treeBlockRow][]
+			table[]
+		*/
+	}
+
+	// Load the treeTable onto memory
+	err = cow.Load(location)
+	if err != nil {
+		return Hash{}, err
+	}
+	table := cow.cachedTreeTables[location]
+
+	row := detectRow(pos, forestRows)
+	rOffset := getRowOffset(row, forestRows)
+
+	blockPos := (offset * (treeBlockRow * 64))
+
+	fmt.Println(table)
+
+	return Hash{}, nil
+}
+
+// Read the treeTable from the disk and return the hash value
+func (cow *CowForest) readFromDisk(treeBlockRow uint8, offset uint64) (Hash, error) {
 
 	return Hash{}, nil
 }
@@ -482,8 +582,51 @@ func (cow *CowForest) Write() error {
 	return nil
 }
 
-// Load will load the existing forest from the disk given a path
-func (cow *CowForest) Load(path string) error {
+// SwapNodes takes in two hashes and atomically swaps them.
+// NOTE The treeBlocks on disk are not changed. Commit must be called for that
+func (cow *CowForest) SwapNodes(a, b uint64) error {
+	return nil
+}
+
+// Load will load the existing forest from the disk given a fileNumber
+func (cow *CowForest) Load(fileNum int64) error {
+	stringLoc := strconv.FormatInt(fileNum, 10) // base 10 used
+	filePath := filepath.Join(cow.fBasePath, stringLoc)
+
+	f, err := os.Open(filePath + extension)
+	if err != nil {
+		// If the error returned is of no files existing, then the manifest
+		// is corrupt
+		if os.IsNotExist(err) {
+			// Not sure if we can recover from this? I think panic
+			// is the right call
+			panic(errorCorruptManifest())
+			//return errorCorruptManifest()
+
+		}
+		return err
+	}
+	// 1024 treeBlocks in table, 127 leaves + 32 byte meta in a treeBlock
+	// 32 bytes per leaf
+	buf := bufio.NewReaderSize(f, 1024*128*32)
+
+	//var leaves [127]Hash
+	var leaves [4064]byte
+	var meta [32]byte
+	var newTable treeTable
+	// 1024 treeBlocks in a treeTable
+	for i := 0; i < 1024; i++ {
+		buf.Read(meta[:])
+		buf.Read(leaves[:])
+		for j := 0; j < 32; j++ {
+			offset := j * 32
+			copy(newTable.memTreeBlocks[i].leaves[j][:],
+				leaves[offset:offset+31])
+		}
+	}
+	// set map
+	cow.cachedTreeTables[fileNum] = newTable
+
 	return nil
 }
 
