@@ -93,7 +93,7 @@ func (r *ramForestData) close() {
 
 // ********************************************* forest on disk
 
-// Config is for configurations for a CowForest
+// Config is for configurations for a cowForest
 type Config struct {
 	// rowPerTreeBlock is the rows a treeBlock holds
 	rowPerTreeBlock uint8
@@ -155,26 +155,12 @@ type manifest struct {
 	// The current allocated rows in forest
 	forestRows uint8
 
-	// count measures the count of the tables on disk based on the row
-	// it's at.
-	// Ex: [6, 1] means that there are 6 0-row treeTables on disk with
-	// one 1-row treeTable
-	// TODO Maybe this isn't needed
-	count []uint64
-
 	// location holds the on-disk fileNum for the treeTables
-	// -1 for in-memory tables
 	location [][]int64
 
 	// staleFiles are the files that are not part of the latest forest state
 	// these should be cleaned up.
 	staleFiles []int64
-}
-
-type treeBlockPos struct {
-	//
-	row    uint8
-	offset uint64
 }
 
 // save creates a new manifest version and saves it and removes the old manifest
@@ -293,15 +279,19 @@ func getTreeTable(pos, maxRange, treeBlocks uint64) uint64 {
 func getTreeBlockPos(pos uint64, forestRows uint8, maxCachedTables int) (
 	treeBlockRow uint8, treeBlockOffset uint64, err error) {
 
-	rowPerTreeBlock := uint8(7)
-	TreeBlockRows := uint8(6)
+	// For testing. These should be set within the cowforest
+	rowPerTreeBlock := uint8(3)
+	TreeBlockRows := uint8(2)
 
+	// maxPossiblePosition is the upper limit for the position that a given tree
+	// can hold. Should error out if a requested position is greater than it.
 	maxPossiblePosition := getRowOffset(forestRows, forestRows)
 	if pos > maxPossiblePosition {
 		err = fmt.Errorf("Position requested is more than the forest can hold")
 		return
 	}
 
+	// The row that the current position is on
 	row := detectRow(pos, forestRows)
 
 	// treeBlockRow is the "row" representation of a treeBlock forestRows
@@ -310,7 +300,6 @@ func getTreeBlockPos(pos uint64, forestRows uint8, maxCachedTables int) (
 	// for the treeBlock above that. This is as there are 7 rows per treeBlock
 	// ex: 0~6, 7~13, 14~20
 	treeBlockRow = row / rowPerTreeBlock
-	//treeBlockRow = row / 3 // just for testing
 
 	// get position relevant to the row, not the entire forest
 	// ex:
@@ -320,28 +309,31 @@ func getTreeBlockPos(pos uint64, forestRows uint8, maxCachedTables int) (
 	// |---\   |---\
 	// 00  01  02  03
 	//
+	// row 0 stays the same. Everything else changes
 	// position 04 -> 00, 05 -> 01, 06 -> 00
-	rowPos := getRowOffset(row, forestRows)
-	offset := pos - rowPos
+	rowOffset := getRowOffset(row, forestRows)
+	localRowPos := pos - rowOffset
+	fmt.Println("localRowPos", localRowPos)
 
-	leafCount := 1 << forestRows // total leaves in the forest
-	//nodeCountAtRow := leafCount >> row // total nodes in this row
+	leafCount := 1 << forestRows       // total leaves in the forest
+	nodeCountAtRow := leafCount >> row // total nodes in this row
 	//treeBlockCountAtRow := nodeCountAtRow / (1 << 2) // change 2 to the relevant forestRows
-	nodeCountAtTreeBlockRow := leafCount >> (treeBlockRow * rowPerTreeBlock) // total nodes in this row
+	nodeCountAtTreeBlockRow := leafCount >> (treeBlockRow * rowPerTreeBlock) // total nodes in this TreeBlockrow
 	fmt.Println("nodeCountAtTreeBlockRow:", nodeCountAtTreeBlockRow)
 
 	// If there are less nodes at row than a treeBlock holds, it means that there
 	// are empty leaves in that single treeBlock
 	var treeBlockCountAtRow int
 	if nodeCountAtTreeBlockRow < (1 << TreeBlockRows) {
+		// Only 1 treeBlock, the top treeBlock, may be sparse.
 		treeBlockCountAtRow = 1
 	} else {
-
-		treeBlockCountAtRow = nodeCountAtTreeBlockRow / (1 << TreeBlockRows) // change 2 to the relevant forestRows
+		//treeBlockCountAtRow = nodeCountAtRow / (1 << TreeBlockRows)
+		treeBlockCountAtRow = nodeCountAtTreeBlockRow / (1 << TreeBlockRows)
 	}
 	fmt.Println("treeBlockCountAtRow:", treeBlockCountAtRow)
 
-	// In a given row, how many leaves go into a treeBlock?
+	// In a given row, how many leaves go into a treeBlock of that row?
 	// For exmaple, a forest with:
 	// row = 1, rowPerTreeBlock = 3
 	// maxLeafPerTreeBlockAtRow = 2
@@ -349,12 +341,10 @@ func getTreeBlockPos(pos uint64, forestRows uint8, maxCachedTables int) (
 	// another would be
 	// row = 0, rowPerTreeBlock = 3
 	// maxLeafPerTreeBlockAtRow = 4
-	maxLeafPerTreeBlockAtRow := nodeCountAtTreeBlockRow / treeBlockCountAtRow
+	maxLeafPerTreeBlockAtRow := nodeCountAtRow / treeBlockCountAtRow
 	fmt.Println("maxLeafPerTreeBlockAtRow", maxLeafPerTreeBlockAtRow)
-	treeBlockOffset = offset / uint64(maxLeafPerTreeBlockAtRow)
 
-	// TODO is this needed?? Like as in, is it worth fixing beause it's broken
-	//cached = uint64(treeBlockCountAtRow-maxCachedTables) <= treeBlockOffset
+	treeBlockOffset = localRowPos / uint64(maxLeafPerTreeBlockAtRow)
 
 	return
 }
@@ -386,22 +376,57 @@ func getRowOffset(row, forestRows uint8) uint64 {
 func gPosToLocPos(gPos, offset uint64, treeBlockRow, forestRows uint8) (
 	uint8, uint64) {
 
+	rowPerTreeBlock := uint8(3)
+	//treeBlockRows := uint8(2)
+
+	fmt.Println()
+	fmt.Println()
+	fmt.Println()
+	fmt.Println()
+	fmt.Println()
+
 	row := detectRow(gPos, forestRows)
 	rOffset := getRowOffset(row, forestRows)
 
 	// the position relevant to the row
 	rowPos := gPos - rOffset
+	fmt.Println("rowPos", rowPos)
 
-	treeBlockLeafCount := 1 << treeBlockRows
-	rowLeafCount := treeBlockLeafCount / int(row+1) // +1 beause you can have a 0th row
+	// total leaves in the forest
+	leafCount := 1 << forestRows
 
-	locPos := rowPos / uint64(rowLeafCount/2)
-	locRow := row - (treeBlockRows * treeBlockRow)
+	// total nodes in this row
+	nodeCountAtRow := leafCount >> row
+	fmt.Println("nodeCountAtRow", nodeCountAtRow)
+
+	// total nodes in this treeBlockRow
+	nodeCountAtTreeBlockRow := leafCount >> (treeBlockRow * rowPerTreeBlock)
+	fmt.Println("nodeCountAtTreeBlockRow", nodeCountAtTreeBlockRow)
+
+	// This doesn't work for the root
+	//treeBlockCountAtRow := nodeCountAtTreeBlockRow / (1 << treeBlockRows)
+
+	// If there are less nodes at row than a treeBlock holds, it means that there
+	// are empty leaves in that single treeBlock
+	var treeBlockCountAtRow int
+	if nodeCountAtTreeBlockRow < (1 << treeBlockRows) {
+		// Only 1 treeBlock, the top treeBlock, may be sparse.
+		treeBlockCountAtRow = 1
+	} else {
+		//treeBlockCountAtRow = nodeCountAtRow / (1 << TreeBlockRows)
+		treeBlockCountAtRow = nodeCountAtTreeBlockRow / (1 << treeBlockRows)
+	}
+	fmt.Println("treeBlockCountAtRow", treeBlockCountAtRow)
+
+	rowBlockOffset := offset * uint64(nodeCountAtRow/treeBlockCountAtRow)
+	locPos := rowPos - rowBlockOffset
+	locRow := (row - (rowPerTreeBlock * treeBlockRow))
 
 	return locRow, locPos
 
 }
 
+/*
 // getMin grabs the minimum leaf position a TreeTable can hold
 func getMin(max, blockRow uint64, maxCachedTables int) uint64 {
 	stored := uint64(maxCachedTables * 1024)
@@ -412,6 +437,7 @@ func getMin(max, blockRow uint64, maxCachedTables int) uint64 {
 func getRange(blockRow uint64) uint64 {
 	return uint64(1024 * blockRow)
 }
+*/
 
 // treeBlockLeaf is a leaf in any given treeBlock and represents the lowest
 // nodes in a given tree
@@ -453,6 +479,7 @@ type treeBlock struct {
 	leaves [127]Hash
 }
 
+/*
 // read takes a global leaf position and returns the Hash
 func (tb *treeBlock) read(pos, blockNum uint64, forestRows uint8) (Hash, error) {
 	row := detectRow(pos, forestRows)
@@ -462,6 +489,7 @@ func (tb *treeBlock) read(pos, blockNum uint64, forestRows uint8) (Hash, error) 
 
 	return Hash{}, nil
 }
+*/
 
 type treeTableState int
 
@@ -486,8 +514,8 @@ type treeTable struct {
 }
 
 // Shorthand for copy-on-write. Unfortuntely, it doesn't go moo
-type CowForest struct {
-	// cachedTreeTables are cached when Read on CowForest is called
+type cowForest struct {
+	// cachedTreeTables are cached when Read on cowForest is called
 	// TODO empty these after a certain block or something
 	cachedTreeTables map[int64]treeTable
 
@@ -495,6 +523,10 @@ type CowForest struct {
 	// and writen to disk yet.
 	// row denotes the treeTable rows and the column denotes the maxLeafRange
 	pendingTreeTables [][]treeTable
+
+	// same as rows in Forest. Here to fit the interface. TODO Would
+	// be better if wasn't here
+	rows uint8
 
 	// maxCachedTables denotes how many tables to hold before writing to
 	// disk
@@ -513,14 +545,15 @@ type CowForest struct {
 	fBasePath string
 }
 
-// Initalize returns a CowForest with a maxCachedTables value set
-func Initalize(maxCachedTables int) (*CowForest, error) {
+// initalize returns a cowForest with a maxCachedTables value set
+func initalize(maxCachedTables int) (*cowForest, error) {
 	// Cache at least 1
 	if maxCachedTables <= 0 {
 		maxCachedTables = 1
 	}
-	cow := CowForest{
+	cow := cowForest{
 		maxCachedTables: maxCachedTables,
+		fBasePath:       "~/.forest",
 	}
 	cow.cachedTreeTables = make(map[int64]treeTable)
 	//cow.memTreeTables = make([][]treeTable, 1)
@@ -528,7 +561,7 @@ func Initalize(maxCachedTables int) (*CowForest, error) {
 }
 
 // Read takes a position and forestRows to return the Hash of that leaf
-func (cow *CowForest) Read(pos uint64, forestRows uint8) (Hash, error) {
+func (cow *cowForest) read(pos uint64) Hash {
 	// Steps for Read go as such:
 	//
 	// 1. Fetch the relevant treeTable/treeBlock
@@ -536,60 +569,105 @@ func (cow *CowForest) Read(pos uint64, forestRows uint8) (Hash, error) {
 	// 2. Fetch the relevant treeBlock
 	// 3. Fetch the leaf
 
-	treeBlockRow, offset, err := getTreeBlockPos(
-		pos, forestRows, cow.maxCachedTables)
+	treeBlockRow, treeBlockOffset, err := getTreeBlockPos(
+		pos, cow.rows, cow.maxCachedTables)
 	if err != nil {
-		return Hash{}, err
+		//return Hash{}, err
+		panic(err)
 	}
 
-	// grab the treeTable location
-	location := cow.manifest.location[treeBlockRow][offset]
+	// grab the treeTable location. This is just a number for the .ufod file
+	location := cow.manifest.location[treeBlockRow][treeBlockOffset/1024]
 
-	// location of -1 means that it's in memory
-	if location < 0 {
-		/*
-			table := cow.memTreeTables[treeBlockRow][]
-			table[]
-		*/
+	// check if it exists in memory
+	table, found := cow.cachedTreeTables[location]
+
+	// Table is in memory
+	if !found {
+		// Load the treeTable onto memory. This maps the table to the location
+		err = cow.load(location)
+		if err != nil {
+			//return Hash{}, err
+			panic(err)
+		}
+		table = cow.cachedTreeTables[location]
 	}
 
-	// Load the treeTable onto memory
-	err = cow.Load(location)
+	treeBlock := table.memTreeBlocks[treeBlockOffset%1024]
+
+	_, localPos := gPosToLocPos(pos, treeBlockOffset, treeBlockRow, cow.rows)
+
+	return treeBlock.leaves[localPos]
+}
+
+// write changes the in-memory representation of the relevant treeBlock
+// NOTE The treeBlocks on disk are not changed. commit must be called for that
+func (cow *cowForest) write(pos uint64, h Hash) {
+	treeBlockRow, treeBlockOffset, err := getTreeBlockPos(
+		pos, cow.rows, cow.maxCachedTables)
 	if err != nil {
-		return Hash{}, err
+		//return Hash{}, err
+		panic(err)
 	}
-	table := cow.cachedTreeTables[location]
 
-	row := detectRow(pos, forestRows)
-	rOffset := getRowOffset(row, forestRows)
+	// grab the treeTable location. This is just a number for the .ufod file
+	location := cow.manifest.location[treeBlockRow][treeBlockOffset/1024]
 
-	blockPos := (offset * (treeBlockRow * 64))
+	// check if it exists in memory
+	table, found := cow.cachedTreeTables[location]
 
-	fmt.Println(table)
+	// if not found in memory, load then update the fileNum
+	if !found {
+		//delete(cow.cachedTreeTables, location)
+		err = cow.load(location)
+		if err != nil {
+			//return Hash{}, err
+			panic(err)
+		}
+		// set as table
+		table = cow.cachedTreeTables[location]
 
-	return Hash{}, nil
+		// advance fileNum and set as new file
+		cow.manifest.fileNum++
+		cow.manifest.location[treeBlockRow][treeBlockOffset/1024] =
+			cow.manifest.fileNum
+
+		// add file to be cleaned up
+		cow.manifest.staleFiles = append(
+			cow.manifest.staleFiles, location)
+	}
+
+	_, localPos := gPosToLocPos(pos, treeBlockOffset, treeBlockRow, cow.rows)
+	table.memTreeBlocks[treeBlockOffset%1024].leaves[localPos] = h
 }
 
-// Read the treeTable from the disk and return the hash value
-func (cow *CowForest) readFromDisk(treeBlockRow uint8, offset uint64) (Hash, error) {
-
-	return Hash{}, nil
-}
-
-// Write changes the in-memory representation of the relevant treeBlock
+// swapHash takes in two hashes and atomically swaps them.
 // NOTE The treeBlocks on disk are not changed. Commit must be called for that
-func (cow *CowForest) Write() error {
-	return nil
+func (cow *cowForest) swapHash(a, b uint64) {
 }
 
-// SwapNodes takes in two hashes and atomically swaps them.
-// NOTE The treeBlocks on disk are not changed. Commit must be called for that
-func (cow *CowForest) SwapNodes(a, b uint64) error {
-	return nil
+func (cow *cowForest) swapHashRange(a, b, w uint64) {
+}
+
+func (cow *cowForest) size() uint64 {
+	return uint64(0)
+}
+
+func (cow *cowForest) resize(newSize uint64) {
+	// nothing to do
+}
+
+func (cow *cowForest) close() {
+	// commit the current forest
+	err := cow.commit()
+	if err != nil {
+		fmt.Printf("cowForest save error: %s "+
+			"Reverted back to the previously saved forest", err)
+	}
 }
 
 // Load will load the existing forest from the disk given a fileNumber
-func (cow *CowForest) Load(fileNum int64) error {
+func (cow *cowForest) load(fileNum int64) error {
 	stringLoc := strconv.FormatInt(fileNum, 10) // base 10 used
 	filePath := filepath.Join(cow.fBasePath, stringLoc)
 
@@ -631,19 +709,19 @@ func (cow *CowForest) Load(fileNum int64) error {
 }
 
 // GetSnapshot returns a snapshot of the forest in a given height and blockHash
-func (cow *CowForest) GetSnapshot(blockHeight int32, hash Hash) *CowForest {
+func (cow *cowForest) GetSnapshot(blockHeight int32, hash Hash) *cowForest {
 	// TODO placeholder
-	return &CowForest{}
+	return &cowForest{}
 }
 
 // Commit makes writes to the disk and sets the forest to point to the new
 // treeBlocks. The new forest state is saved to disk only when Commit is called
-func (cow *CowForest) Commit() error {
+func (cow *cowForest) commit() error {
 	return nil
 }
 
 // Clean removes all the stale treeTables from the disk
-func (cow *CowForest) Clean() error {
+func (cow *cowForest) clean() error {
 	return nil
 }
 

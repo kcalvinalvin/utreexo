@@ -98,16 +98,29 @@ type Forest struct {
 }
 
 // NewForest : use ram if not given a file
-func NewForest(forestFile *os.File, cached bool) *Forest {
+func NewForest(forestFile *os.File, cached bool,
+	cowPath string) *Forest {
+
 	f := new(Forest)
 	f.numLeaves = 0
 	f.rows = 0
 
 	if forestFile == nil {
-		// for in-ram
-		f.data = new(ramForestData)
-	} else {
+		if cowPath == "" {
+			// for in-ram
+			f.data = new(ramForestData)
+		} else {
 
+			// Init cowForest
+			d, err := initalize(0)
+			if err != nil {
+				panic(err)
+			}
+			f.data = d
+		}
+
+	} else {
+		// forest on disk or cached
 		if cached {
 			d := new(cacheForestData)
 			d.file = forestFile

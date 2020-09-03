@@ -5,6 +5,42 @@ import (
 	"testing"
 )
 
+// newCowSimForest creates a CowForest for testing
+func newCowSimForest(directory string) *Forest {
+	f := new(Forest)
+	f.numLeaves = 0
+	f.rows = 0
+
+	d, err := initalize(2)
+	if err != nil {
+		panic(err)
+	}
+	f.data = d
+
+	f.data.resize(1)
+	f.positionMap = make(map[MiniHash]uint64)
+	return f
+}
+
+func TestGPosToLocPos(t *testing.T) {
+	pos := uint64(126)
+	forestRows := uint8(6)
+	maxCachedTables := 1
+	treeBlockRow, offset, err := getTreeBlockPos(
+		pos, forestRows, maxCachedTables)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	locRow, locPos := gPosToLocPos(pos, offset, treeBlockRow, forestRows)
+	fmt.Printf("\nfor gPos:%d, treeBlockRow:%d, offset:%d, forestRows:%d -->\n"+
+		"locRow:%d, locPos:%d\n", pos, treeBlockRow, offset, forestRows,
+		locRow, locPos)
+	fmt.Printf("\ntreeBlockRow: %d, offset: %d, err: %s\n",
+		treeBlockRow, offset, err)
+
+}
+
 /*
 func TestGetPosInTreeBlock(t *testing.T) {
 	num := getPosInTreeBlock(7999, 12, 0)
@@ -47,8 +83,8 @@ func TestGetTreeBlockPos(t *testing.T) {
 	//maxCachedTables := 1
 
 	//pos := uint64(1040384)
-	pos := uint64(254)
-	forestRows := uint8(7)
+	pos := uint64(36)
+	forestRows := uint8(6)
 	maxCachedTables := 1
 	treeBlockRow, offset, err := getTreeBlockPos(
 		pos, forestRows, maxCachedTables)
@@ -130,4 +166,5 @@ func TestGetRowOffset(t *testing.T) {
 	fmt.Println(getRowOffset(17, 19))
 	fmt.Println(getRowOffset(18, 19))
 	fmt.Println(getRowOffset(19, 19))
+	fmt.Println(getRowOffset(27, 27))
 }

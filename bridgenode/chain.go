@@ -60,7 +60,8 @@ func initBridgeNodeState(
 		}
 	} else {
 		fmt.Println("Creating new forestdata")
-		forest, err = createForest(forestInRam, forestCached)
+		// TODO Add a path for CowForest here
+		forest, err = createForest(forestInRam, forestCached, "")
 		height = 1 // note that blocks start at 1, block 0 doesn't go into set
 		if err != nil {
 			err = fmt.Errorf("createForest error: %s", err.Error())
