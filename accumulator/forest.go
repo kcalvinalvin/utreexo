@@ -112,7 +112,7 @@ func NewForest(forestFile *os.File, cached bool,
 		} else {
 
 			// Init cowForest
-			d, err := initalize(0)
+			d, err := initialize(cowPath)
 			if err != nil {
 				panic(err)
 			}
