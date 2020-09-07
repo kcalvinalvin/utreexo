@@ -28,7 +28,8 @@ func TestForestAddDel(t *testing.T) {
 
 	numAdds := uint32(10)
 
-	f := NewForest(nil, false, "")
+	f := NewForest(nil, false, "/home/calvin/.forest")
+	//f := NewForest(nil, false, "")
 
 	sc := NewSimChain(0x07)
 	sc.lookahead = 400

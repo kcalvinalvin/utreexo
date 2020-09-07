@@ -507,6 +507,8 @@ func (f *Forest) reMap(destRows uint8) error {
 
 	// zero out (what is now the) right half of the bottom row
 	//	copy(t.fs[1<<(t.rows-1):1<<t.rows], make([]Hash, 1<<(t.rows-1)))
+	fmt.Println("DESTROWS:", destRows)
+	fmt.Println("FORESTROWS IN FOREST.GO:", f.rows+1)
 	for x := uint64(1 << f.rows); x < 1<<destRows; x++ {
 		// here you may actually need / want to delete?  but numleaves
 		// should still ensure that you're not reading over the edge...

@@ -11,7 +11,7 @@ func newCowSimForest(directory string) *Forest {
 	f.numLeaves = 0
 	f.rows = 0
 
-	d, err := initalize()
+	d, err := initialize("")
 	if err != nil {
 		panic(err)
 	}
@@ -130,39 +130,6 @@ func TestGetRowOffset(t *testing.T) {
 
 		}
 	}
-	fmt.Println(getRowOffset(0, 6))
-	fmt.Println(getRowOffset(1, 6))
-	fmt.Println(getRowOffset(2, 6))
-	fmt.Println(getRowOffset(3, 6))
-	fmt.Println(getRowOffset(4, 6))
-	fmt.Println(getRowOffset(5, 6))
-	fmt.Println(getRowOffset(6, 6))
-
-	fmt.Println(getRowOffset(7, 7))
-
-	fmt.Println(getRowOffset(0, 19))
-	fmt.Println(getRowOffset(1, 19))
-	fmt.Println(getRowOffset(2, 19))
-	fmt.Println(getRowOffset(3, 19))
-	fmt.Println(getRowOffset(4, 19))
-	fmt.Println(getRowOffset(5, 19))
-	fmt.Println(getRowOffset(6, 19))
-	fmt.Println(getRowOffset(7, 19))
-	fmt.Println(getRowOffset(8, 19))
-	fmt.Println(getRowOffset(9, 19))
-	fmt.Println(getRowOffset(10, 19))
-	fmt.Println(getRowOffset(11, 19))
-	fmt.Println(getRowOffset(12, 19))
-	fmt.Println(getRowOffset(13, 19))
-	fmt.Println(getRowOffset(13, 19))
-	fmt.Println(getRowOffset(14, 19))
-	fmt.Println(getRowOffset(15, 19))
-	fmt.Println(getRowOffset(16, 19))
-	fmt.Println(getRowOffset(17, 19))
-	fmt.Println(getRowOffset(18, 19))
-	fmt.Println(getRowOffset(19, 19))
-	fmt.Println(getRowOffset(27, 27))
-
 	fmt.Println(getRowOffset(0, 10))
 	fmt.Println(getRowOffset(1, 10))
 	fmt.Println(getRowOffset(2, 10))
@@ -174,6 +141,11 @@ func TestGetRowOffset(t *testing.T) {
 	fmt.Println(getRowOffset(8, 10))
 	fmt.Println(getRowOffset(9, 10))
 	fmt.Println(getRowOffset(10, 10))
+
+	fmt.Println()
+	fmt.Println()
+	fmt.Println()
+	fmt.Println(getRowOffset(3, 3))
 }
 
 func TestGetTreeBlockPosRange(t *testing.T) {
