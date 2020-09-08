@@ -28,8 +28,7 @@ func TestForestAddDel(t *testing.T) {
 
 	numAdds := uint32(10)
 
-	f := NewForest(nil, false, "/home/calvin/.forest")
-	//f := NewForest(nil, false, "")
+	f := NewForest(nil, false, "")
 
 	sc := NewSimChain(0x07)
 	sc.lookahead = 400
@@ -49,6 +48,114 @@ func TestForestAddDel(t *testing.T) {
 		}
 
 		fmt.Printf("nl %d %s", f.numLeaves, f.ToString())
+	}
+}
+func TestCowForestAddDelComp(t *testing.T) {
+
+	numAdds := uint32(10)
+
+	cowF := NewForest(nil, false, "/home/calvin/.forest")
+	memF := NewForest(nil, false, "")
+
+	sc := NewSimChain(0x07)
+	sc.lookahead = 400
+
+	for b := 0; b < 1000; b++ {
+
+		adds, _, delHashes := sc.NextBlock(numAdds)
+
+		cowBP, err := cowF.ProveBatch(delHashes)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		memBP, err := memF.ProveBatch(delHashes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(cowBP, memBP) {
+			fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
+			fmt.Printf("nl %d %s\n", memF.numLeaves, memF.ToString())
+			t.Fatal("cowBP and memBP are not equal")
+		}
+
+		cowBP.SortTargets()
+		_, err = cowF.Modify(adds, cowBP.Targets)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		memBP.SortTargets()
+		_, err = memF.Modify(adds, memBP.Targets)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if cowF.ToString() != memF.ToString() {
+			fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
+			fmt.Printf("nl %d %s\n", memF.numLeaves, memF.ToString())
+			fmt.Println("forestRows in f: ", cowF.rows)
+			t.Fatal("forests are not equal")
+		}
+
+		fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
+		fmt.Printf("nl %d %s\n", memF.numLeaves, memF.ToString())
+	}
+}
+
+func TestCowForestAddDel(t *testing.T) {
+
+	numAdds := uint32(10)
+
+	cowF := NewForest(nil, false, "/home/calvin/.forest")
+	//memF := NewForest(nil, false, "")
+
+	sc := NewSimChain(0x07)
+	sc.lookahead = 400
+
+	for b := 0; b < 5; b++ {
+
+		adds, _, delHashes := sc.NextBlock(numAdds)
+
+		cowBP, err := cowF.ProveBatch(delHashes)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		/*
+			memBP, err := memF.ProveBatch(delHashes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(cowBP, memBP) {
+				fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
+				fmt.Printf("nl %d %s\n", memF.numLeaves, memF.ToString())
+				t.Fatal("cowBP and memBP are not equal")
+			}
+		*/
+
+		cowBP.SortTargets()
+		_, err = cowF.Modify(adds, cowBP.Targets)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		/*
+			memBP.SortTargets()
+			_, err = memF.Modify(adds, memBP.Targets)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if cowF.ToString() != memF.ToString() {
+				fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
+				fmt.Printf("nl %d %s\n", memF.numLeaves, memF.ToString())
+				t.Fatal("forests are not equal")
+			}
+		*/
+
+		fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
+		//fmt.Printf("nl %d %s\n", memF.numLeaves, memF.ToString())
 	}
 }
 

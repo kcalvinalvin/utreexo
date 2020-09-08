@@ -23,8 +23,8 @@ func newCowSimForest(directory string) *Forest {
 }
 
 func TestGPosToLocPos(t *testing.T) {
-	pos := uint64(126)
-	forestRows := uint8(6)
+	pos := uint64(200)
+	forestRows := uint8(8)
 	treeBlockRow, offset, err := getTreeBlockPos(pos, forestRows)
 	if err != nil {
 		t.Fatal(err)
@@ -81,8 +81,8 @@ func TestGetTreeBlockPos(t *testing.T) {
 	//maxCachedTables := 1
 
 	//pos := uint64(1040384)
-	pos := uint64(36)
-	forestRows := uint8(6)
+	pos := uint64(16)
+	forestRows := uint8(4)
 	treeBlockRow, offset, err := getTreeBlockPos(pos, forestRows)
 	fmt.Printf("For pos: %d, forestRows: %d\n", pos, forestRows)
 	fmt.Printf("treeBlockRow: %d, offset: %d, err: %s\n",

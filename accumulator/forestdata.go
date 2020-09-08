@@ -37,6 +37,8 @@ type ForestData interface {
 	// can't resize down
 	resize(newSize uint64) // make it have a new size (bigger)
 
+	setRow(row uint8)
+
 	// closes the forest-on-disk for stopping
 	close()
 }
@@ -104,6 +106,9 @@ func (r *ramForestData) resize(newSize uint64) {
 
 func (r *ramForestData) close() {
 	// nothing to do here fro a ram forest.
+}
+
+func (r *ramForestData) setRow(row uint8) {
 }
 
 // ********************************************* forest on disk
@@ -401,7 +406,7 @@ func gPosToLocPos(gPos, offset uint64, treeBlockRow, forestRows uint8) (
 
 	// the position relevant to the row
 	rowPos := gPos - rOffset
-	//fmt.Println("rowPos", rowPos)
+	fmt.Println("rOffset", rOffset)
 
 	// total leaves in the forest
 	leafCount := 1 << forestRows
@@ -506,7 +511,7 @@ type treeTable struct {
 	// bitflags for the treeTable state
 	state treeTableState
 
-	treeBlockRow uint8
+	//treeBlockRow uint8
 	// memTreeBlocks is the treeBlocks that are stored in memory before they are
 	// written to disk. This is helpful as older treeBlocks get less and
 	// less likely to be accessed as stated in 5.7 of the utreexo paper
@@ -556,6 +561,7 @@ func initialize(path string) (*cowForest, error) {
 
 // Read takes a position and forestRows to return the Hash of that leaf
 func (cow *cowForest) read(pos uint64) Hash {
+	fmt.Println("READ CALLED on pos: ", pos)
 	// Steps for Read go as such:
 	//
 	// 1. Fetch the relevant treeTable/treeBlock
@@ -587,14 +593,17 @@ func (cow *cowForest) read(pos uint64) Hash {
 		table = cow.cachedTreeTables[location]
 	}
 
-	fmt.Println("IS TABLE FOUND?", found)
-	fmt.Println(table.memTreeBlocks)
+	//fmt.Println("IS TABLE FOUND?", found)
+	//fmt.Println(table.memTreeBlocks)
 	//fmt.Println("FETCH", treeBlockOffset%treeBlockPerTable)
 	treeBlock := table.memTreeBlocks[treeBlockOffset%treeBlockPerTable]
 
-	_, localPos := gPosToLocPos(pos, treeBlockOffset, treeBlockRow, cow.manifest.forestRows)
+	locRow, localPos := gPosToLocPos(pos, treeBlockOffset, treeBlockRow, treeBlockRows<<treeBlockRow)
 
-	hash := treeBlock.leaves[localPos]
+	fetch := localPos + getRowOffset(locRow, treeBlockRows<<treeBlockRow)
+
+	fmt.Println("fetch", fetch)
+	hash := treeBlock.leaves[fetch]
 	if hash == empty {
 		fmt.Println("WARNING. Hash is empty, may crash")
 		fmt.Println("gpos", pos)
@@ -602,14 +611,41 @@ func (cow *cowForest) read(pos uint64) Hash {
 		fmt.Println("treeBlockRow", treeBlockRow)
 		fmt.Println("treeBlockOffset", treeBlockOffset)
 		fmt.Println("forestRows", cow.manifest.forestRows)
-		fmt.Println(treeBlock.leaves)
+		//fmt.Println(treeBlock.leaves)
+	} else {
+		fmt.Printf("hash:%x\n", hash.Mini())
+		fmt.Println("gpos", pos)
+		fmt.Println("localpos", localPos)
+		fmt.Println("treeBlockRow", treeBlockRow)
+		fmt.Println("treeBlockOffset", treeBlockOffset)
+		fmt.Println("forestRows", cow.manifest.forestRows)
 	}
+	fmt.Printf("READ RETURN with hash: %x\n", hash)
 	return hash
 }
 
 // write changes the in-memory representation of the relevant treeBlock
 // NOTE The treeBlocks on disk are not changed. commit must be called for that
 func (cow *cowForest) write(pos uint64, h Hash) {
+	fmt.Printf("WRITE CALLED on pos: %d with hash: %x\n", pos, h)
+	if h == empty {
+		fmt.Println("asked to write empty hash to pos:", pos)
+	}
+	var emptyBeforeWrite bool
+	if pos == 24 {
+		if cow.read(pos) == empty {
+			fmt.Println("gpos 27 is empty before write")
+			emptyBeforeWrite = true
+		}
+		fmt.Println("Write pos gpos 27 called")
+	}
+	if pos == 76 {
+		if cow.read(pos) == empty {
+			fmt.Println("gpos 76 is empty before write")
+			emptyBeforeWrite = true
+		}
+		fmt.Println("Write pos gpos 76 called")
+	}
 	treeBlockRow, treeBlockOffset, err := getTreeBlockPos(pos, cow.manifest.forestRows)
 	if err != nil {
 		//return Hash{}, err
@@ -647,13 +683,45 @@ func (cow *cowForest) write(pos uint64, h Hash) {
 			cow.meta.staleFiles, location)
 	}
 
-	_, localPos := gPosToLocPos(
-		pos, treeBlockOffset, treeBlockRow, cow.manifest.forestRows)
+	locRow, localPos := gPosToLocPos(
+		pos, treeBlockOffset, treeBlockRow, treeBlockRows<<treeBlockRow)
+
+	fetch := localPos + getRowOffset(locRow, treeBlockRows<<treeBlockRow)
+	fmt.Println("fetch", fetch)
 
 	if table.memTreeBlocks[treeBlockOffset%treeBlockPerTable] == nil {
 		table.memTreeBlocks[treeBlockOffset%treeBlockPerTable] = new(treeBlock)
 	}
-	table.memTreeBlocks[treeBlockOffset%treeBlockPerTable].leaves[localPos] = h
+	fmt.Println("FETCH", fetch)
+	// FIXME add locRow to index
+	table.memTreeBlocks[treeBlockOffset%treeBlockPerTable].leaves[fetch] = h
+
+	if pos == 24 {
+		if cow.read(pos) == empty {
+			fmt.Println(h)
+			fmt.Println("AFTER WRITE gpos 24 IS EMPTY")
+			fmt.Println("EMPTYBEFOREWRITE", emptyBeforeWrite)
+		}
+	}
+	if pos == 76 {
+		if cow.read(pos) == empty {
+			fmt.Println(h)
+			fmt.Println("AFTER WRITE gpos 76 IS EMPTY")
+			fmt.Println("EMPTYBEFOREWRITE", emptyBeforeWrite)
+		}
+	}
+
+	if cow.read(pos) != h {
+		panic("the hash written doesn't equal what's supposed to be written")
+	}
+	fmt.Printf("hash:%x\n", h.Mini())
+	fmt.Println("gpos", pos)
+	fmt.Println("localpos", localPos)
+	fmt.Println("treeBlockRow", treeBlockRow)
+	fmt.Println("treeBlockOffset", treeBlockOffset)
+	fmt.Println("forestRows", cow.manifest.forestRows)
+	fmt.Println("WRITE RETURN")
+	fmt.Printf("%x\n", table.memTreeBlocks[0].leaves)
 }
 
 // swapHash takes in two hashes and atomically swaps them.
@@ -661,30 +729,59 @@ func (cow *cowForest) write(pos uint64, h Hash) {
 func (cow *cowForest) swapHash(a, b uint64) {
 	fmt.Println("SWAPHASH CALLED")
 	// Load tables to memory
-	treeBlockRowA, treeBlockOffsetA := cow.findAndLoad(a)
-	treeBlockRowB, treeBlockOffsetB := cow.findAndLoad(b)
+	/*
+		treeBlockRowA, treeBlockOffsetA := cow.findAndLoad(a)
+		treeBlockRowB, treeBlockOffsetB := cow.findAndLoad(b)
 
-	// grab the treeTable location. This is just a number for the .ufod file
-	locationA := cow.manifest.location[treeBlockRowA][treeBlockOffsetA/treeBlockPerTable]
-	locationB := cow.manifest.location[treeBlockRowB][treeBlockOffsetB/treeBlockPerTable]
+		// grab the treeTable location. This is just a number for the .ufod file
+		locationA := cow.manifest.location[treeBlockRowA][treeBlockOffsetA/treeBlockPerTable]
+		locationB := cow.manifest.location[treeBlockRowB][treeBlockOffsetB/treeBlockPerTable]
 
-	tableA, _ := cow.cachedTreeTables[locationA]
-	tableB, _ := cow.cachedTreeTables[locationB]
+		tableA, _ := cow.cachedTreeTables[locationA]
+		tableB, _ := cow.cachedTreeTables[locationB]
 
-	treeBlockA := tableA.memTreeBlocks[treeBlockOffsetA%treeBlockPerTable]
-	treeBlockB := tableB.memTreeBlocks[treeBlockOffsetB%treeBlockPerTable]
+		treeBlockA := tableA.memTreeBlocks[treeBlockOffsetA%treeBlockPerTable]
+		treeBlockB := tableB.memTreeBlocks[treeBlockOffsetB%treeBlockPerTable]
 
-	_, localPosA := gPosToLocPos(a, treeBlockOffsetA, treeBlockRowA, cow.manifest.forestRows)
-	_, localPosB := gPosToLocPos(b, treeBlockOffsetB, treeBlockRowB, cow.manifest.forestRows)
+		_, localPosA := gPosToLocPos(a, treeBlockOffsetA, treeBlockRowA, cow.manifest.forestRows)
+		_, localPosB := gPosToLocPos(b, treeBlockOffsetB, treeBlockRowB, cow.manifest.forestRows)
 
-	// fetch
-	hashA := treeBlockA.leaves[localPosA]
-	hashB := treeBlockB.leaves[localPosB]
+		// fetch
+		hashA := treeBlockA.leaves[localPosA]
+		hashB := treeBlockB.leaves[localPosB]
 
-	fmt.Println("ARE THE TABLES THE SAME", tableA == tableB)
-	// set hashes
-	tableA.memTreeBlocks[treeBlockOffsetA%treeBlockPerTable].leaves[localPosA] = hashB
-	tableB.memTreeBlocks[treeBlockOffsetB%treeBlockPerTable].leaves[localPosB] = hashA
+		// set hashes
+		tableA.memTreeBlocks[treeBlockOffsetA%treeBlockPerTable].leaves[localPosA] = hashB
+		tableB.memTreeBlocks[treeBlockOffsetB%treeBlockPerTable].leaves[localPosB] = hashA
+	*/
+	aHash := cow.read(a)
+	bHash := cow.read(b)
+
+	cow.write(a, bHash)
+	cow.write(b, aHash)
+
+	if a == 27 {
+		if empty == cow.read(a) {
+			panic("empty hash")
+		}
+	}
+
+	if a == 76 {
+		if empty == cow.read(a) {
+			panic("empty hash")
+		}
+	}
+
+	if b == 27 {
+		if empty == cow.read(b) {
+			panic("empty hash")
+		}
+	}
+	if b == 76 {
+		if empty == cow.read(b) {
+			panic("empty hash")
+		}
+	}
 
 	// update the table number
 	/*
@@ -700,65 +797,148 @@ func (cow *cowForest) swapHash(a, b uint64) {
 
 func (cow *cowForest) swapHashRange(a, b, w uint64) {
 	fmt.Println("SWAPHASHRANGE CALLED")
-	// load the tables to memory
-	rowA, offsetsA, posSameOffsetsA := cow.findAndLoadRange(a, w)
-	rowB, offsetsB, posSameOffsetsB := cow.findAndLoadRange(b, w)
+	/*
+		var aBefore []Hash
 
-	// fetch the hashes
-	aHashes := make([]Hash, 0, w+1) // +1 as to include a
-	bHashes := make([]Hash, 0, w+1) // +1 as to include b
-	for i, offsetA := range offsetsA {
-		var table *treeTable
-		for _, pos := range posSameOffsetsA[i] {
+		for i := a; i <= a+w; i++ {
+			aBefore = append(aBefore, cow.read(i))
+		}
+
+		var bBefore []Hash
+		for i := b; i <= b+w; i++ {
+			bBefore = append(bBefore, cow.read(i))
+		}
+		fmt.Println("aBefore")
+		fmt.Println(aBefore)
+		fmt.Println("bBefore")
+		fmt.Println(bBefore)
+
+		// load the tables to memory
+		rowA, offsetsA, posSameOffsetsA := cow.findAndLoadRange(a, w)
+		rowB, offsetsB, posSameOffsetsB := cow.findAndLoadRange(b, w)
+
+		// fetch the hashes
+		aHashes := make([]Hash, 0, w+1) // +1 as to include a
+		bHashes := make([]Hash, 0, w+1) // +1 as to include b
+		for i, offsetA := range offsetsA {
+			var table *treeTable
+			for _, pos := range posSameOffsetsA[i] {
+				loc := cow.manifest.location[rowA][offsetA/treeBlockPerTable]
+				table, _ = cow.cachedTreeTables[loc]
+				treeBlock := table.memTreeBlocks[offsetA%treeBlockPerTable]
+				_, localPos := gPosToLocPos(pos, offsetA, rowA, cow.manifest.forestRows)
+				aHashes = append(aHashes, treeBlock.leaves[localPos])
+			}
+		}
+
+		for i, offsetB := range offsetsB {
+			var table *treeTable
+			for _, pos := range posSameOffsetsB[i] {
+				loc := cow.manifest.location[rowB][offsetB/treeBlockPerTable]
+				table, _ = cow.cachedTreeTables[loc]
+				treeBlock := table.memTreeBlocks[offsetB%treeBlockPerTable]
+				_, localPos := gPosToLocPos(pos, offsetB, rowB, cow.manifest.forestRows)
+				bHashes = append(bHashes, treeBlock.leaves[localPos])
+			}
+		}
+
+		// Apply the hashes
+		var bCount int // for iterating through bHashes. Ugly TODO
+		for i, offsetA := range offsetsA {
+			var table *treeTable
 			loc := cow.manifest.location[rowA][offsetA/treeBlockPerTable]
 			table, _ = cow.cachedTreeTables[loc]
-			treeBlock := table.memTreeBlocks[offsetA%treeBlockPerTable]
-			_, localPos := gPosToLocPos(pos, offsetA, rowA, cow.manifest.forestRows)
-			aHashes = append(aHashes, treeBlock.leaves[localPos])
-		}
-	}
 
-	for i, offsetB := range offsetsB {
-		var table *treeTable
-		for _, pos := range posSameOffsetsB[i] {
+			// Write hashes
+			for _, pos := range posSameOffsetsA[i] {
+				_, localPos := gPosToLocPos(pos, offsetA, rowA, cow.manifest.forestRows)
+				table.memTreeBlocks[offsetA%treeBlockPerTable].leaves[localPos] = bHashes[bCount]
+				bCount++
+			}
+			//cow.updateTableNum(loc, offsetA, rowA)
+		}
+
+		var aCount int // for iterating through bHashes. Ugly TODO
+		for i, offsetB := range offsetsB {
+			var table *treeTable
 			loc := cow.manifest.location[rowB][offsetB/treeBlockPerTable]
 			table, _ = cow.cachedTreeTables[loc]
-			treeBlock := table.memTreeBlocks[offsetB%treeBlockPerTable]
-			_, localPos := gPosToLocPos(pos, offsetB, rowB, cow.manifest.forestRows)
-			bHashes = append(bHashes, treeBlock.leaves[localPos])
+
+			// Write hashes
+			for _, pos := range posSameOffsetsB[i] {
+				_, localPos := gPosToLocPos(pos, offsetB, rowB, cow.manifest.forestRows)
+				table.memTreeBlocks[offsetB%treeBlockPerTable].leaves[localPos] = aHashes[aCount]
+				aCount++
+			}
+			//cow.updateTableNum(loc, offsetB, rowB)
+		}
+
+		// SANITY CHECKING DOWN HERE
+
+		var counter int
+		// Check all hashes
+		var aAfter []Hash
+		for i := a; i <= a+w; i++ {
+			//if bBefore[counter] != cow.read(i) {
+			//	panic("swaphashes written swaps don't match")
+			//}
+			aAfter = append(aAfter, cow.read(i))
+			counter++
+		}
+
+		counter = 0
+		var bAfter []Hash
+		for i := b; i <= b+w; i++ {
+			//if aBefore[counter] != cow.read(i) {
+			//	panic("swaphashes written swaps don't match")
+			//}
+			bAfter = append(bAfter, cow.read(i))
+			counter++
+		}
+		fmt.Println("COMPARE SWAPHASH")
+		fmt.Println(a, w)
+		fmt.Println(b, w)
+		fmt.Println(aBefore)
+		fmt.Println(aAfter)
+
+		fmt.Println()
+		fmt.Println(bBefore)
+		fmt.Println(bAfter)
+	*/
+	aHashes := make([]Hash, 0, w+1) // +1 as to include a
+	bHashes := make([]Hash, 0, w+1) // +1 as to include b
+	for i := a; i < a+w; i++ {
+		aHashes = append(aHashes, cow.read(i))
+	}
+	for i := b; i < b+w; i++ {
+		bHashes = append(bHashes, cow.read(i))
+	}
+
+	var counter int
+	for i := a; i < a+w; i++ {
+		cow.write(i, bHashes[counter])
+		counter++
+
+		if i == 27 {
+			if empty == cow.read(i) {
+				panic("27 is empty")
+			}
+		}
+
+		if i == 76 {
+			if empty == cow.read(i) {
+				panic("27 is empty")
+			}
 		}
 	}
 
-	// Apply the hashes and update table .ufod number
-	var bCount int // for iterating through bHashes. Ugly TODO
-	for i, offsetA := range offsetsA {
-		var table *treeTable
-		loc := cow.manifest.location[rowA][offsetA/treeBlockPerTable]
-		table, _ = cow.cachedTreeTables[loc]
-
-		// Write hashes
-		for _, pos := range posSameOffsetsA[i] {
-			_, localPos := gPosToLocPos(pos, offsetA, rowA, cow.manifest.forestRows)
-			table.memTreeBlocks[offsetA%treeBlockPerTable].leaves[localPos] = bHashes[bCount]
-			bCount++
-		}
-		//cow.updateTableNum(loc, offsetA, rowA)
+	counter = 0
+	for i := b; i < b+w; i++ {
+		cow.write(i, aHashes[counter])
+		counter++
 	}
 
-	var aCount int // for iterating through bHashes. Ugly TODO
-	for i, offsetB := range offsetsB {
-		var table *treeTable
-		loc := cow.manifest.location[rowB][offsetB/treeBlockPerTable]
-		table, _ = cow.cachedTreeTables[loc]
-
-		// Write hashes
-		for _, pos := range posSameOffsetsB[i] {
-			_, localPos := gPosToLocPos(pos, offsetB, rowB, cow.manifest.forestRows)
-			table.memTreeBlocks[offsetB%treeBlockPerTable].leaves[localPos] = aHashes[aCount]
-			aCount++
-		}
-		//cow.updateTableNum(loc, offsetB, rowB)
-	}
+	fmt.Println("SWAPHASHRANGE RETURN")
 }
 
 func (cow *cowForest) size() uint64 {
@@ -776,6 +956,7 @@ func (cow *cowForest) size() uint64 {
 }
 
 func (cow *cowForest) resize(newSize uint64) {
+	fmt.Println("RESIZE CALLED")
 	// get the table count for bottom row
 	//bRowSize := cow.size()
 
@@ -803,9 +984,15 @@ func (cow *cowForest) resize(newSize uint64) {
 	// update forestRows
 	// TODO sorta ugly here because you could just pass in the forestRows
 	// but you'd need to change the interface for that
-	cow.manifest.forestRows += 1
-	//fmt.Println("NEWSIZE:", newSize)
-	//fmt.Println("FOREST ROWS IS NOW", cow.manifest.forestRows)
+	//cow.manifest.forestRows = treeRows(newSize)
+	//cow.manifest.forestRows += 3
+	fmt.Println("NEWSIZE:", newSize)
+	fmt.Println("FORESTROWS IN DATA", cow.manifest.forestRows)
+	fmt.Println("RESIZE RETURN")
+}
+
+func (cow *cowForest) setRow(row uint8) {
+	cow.manifest.forestRows = row
 }
 
 func (cow *cowForest) close() {
@@ -964,6 +1151,7 @@ func (cow *cowForest) updateTableNum(
 
 // Load will load the existing forest from the disk given a fileNumber
 func (cow *cowForest) load(fileNum uint64) error {
+	fmt.Println("LOAD IS CALLED")
 	stringLoc := strconv.FormatUint(fileNum, 10) // base 10 used
 	filePath := filepath.Join(cow.meta.fBasePath, stringLoc)
 
@@ -1132,4 +1320,6 @@ func (d *diskForestData) close() {
 	if err != nil {
 		fmt.Printf("diskForestData close error: %s\n", err.Error())
 	}
+}
+func (d *diskForestData) setRow(row uint8) {
 }

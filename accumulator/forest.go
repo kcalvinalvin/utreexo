@@ -135,6 +135,13 @@ func NewForest(forestFile *os.File, cached bool,
 	}
 
 	f.data.resize(1)
+	//f.reMap(f.rows + 1)
+	//f.reMap(f.rows + 1)
+	//f.reMap(f.rows + 1)
+	//f.reMap(f.rows + 1)
+	//f.reMap(f.rows + 1)
+	//f.reMap(f.rows + 1)
+	//f.reMap(f.rows + 1)
 	f.positionMap = make(map[MiniHash]uint64)
 	return f
 }
@@ -486,6 +493,7 @@ func (f *Forest) reMap(destRows uint8) error {
 	// fmt.Printf("size is %d\n", f.data.size())
 	// rows increase
 	f.data.resize(2 << destRows)
+	f.data.setRow(destRows)
 	// fmt.Printf("size is %d\n", f.data.size())
 	pos := uint64(1 << destRows) // leftmost position of row 1
 	reach := pos >> 1            // how much to next row up
@@ -507,8 +515,6 @@ func (f *Forest) reMap(destRows uint8) error {
 
 	// zero out (what is now the) right half of the bottom row
 	//	copy(t.fs[1<<(t.rows-1):1<<t.rows], make([]Hash, 1<<(t.rows-1)))
-	fmt.Println("DESTROWS:", destRows)
-	fmt.Println("FORESTROWS IN FOREST.GO:", f.rows+1)
 	for x := uint64(1 << f.rows); x < 1<<destRows; x++ {
 		// here you may actually need / want to delete?  but numleaves
 		// should still ensure that you're not reading over the edge...
@@ -516,6 +522,9 @@ func (f *Forest) reMap(destRows uint8) error {
 	}
 
 	f.rows = destRows
+	fmt.Println("FORESTROWS IN FOREST.GO:", f.rows)
+	fmt.Println(destRows)
+	fmt.Println(f.rows)
 	return nil
 }
 
