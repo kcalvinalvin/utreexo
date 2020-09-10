@@ -23,8 +23,8 @@ func newCowSimForest(directory string) *Forest {
 }
 
 func TestGPosToLocPos(t *testing.T) {
-	pos := uint64(200)
-	forestRows := uint8(8)
+	pos := uint64(254)
+	forestRows := uint8(7)
 	treeBlockRow, offset, err := getTreeBlockPos(pos, forestRows)
 	if err != nil {
 		t.Fatal(err)
@@ -37,6 +37,16 @@ func TestGPosToLocPos(t *testing.T) {
 	fmt.Printf("\ntreeBlockRow: %d, offset: %d, err: %s\n",
 		treeBlockRow, offset, err)
 
+}
+
+func TestGrabPrevMult(t *testing.T) {
+	fmt.Println(grabPrevMult(0, leavesPerTreeTable))
+	fmt.Println(grabPrevMult(1, leavesPerTreeTable))
+	fmt.Println(grabPrevMult(leavesPerTreeTable, leavesPerTreeTable))
+	fmt.Println(grabPrevMult(leavesPerTreeTable+1, leavesPerTreeTable))
+	fmt.Println(grabPrevMult((leavesPerTreeTable*2)+1, leavesPerTreeTable))
+
+	fmt.Println(grabPrevMult(254, leavesPerTreeTable))
 }
 
 /*
@@ -81,8 +91,8 @@ func TestGetTreeBlockPos(t *testing.T) {
 	//maxCachedTables := 1
 
 	//pos := uint64(1040384)
-	pos := uint64(16)
-	forestRows := uint8(4)
+	pos := uint64(254)
+	forestRows := uint8(7)
 	treeBlockRow, offset, err := getTreeBlockPos(pos, forestRows)
 	fmt.Printf("For pos: %d, forestRows: %d\n", pos, forestRows)
 	fmt.Printf("treeBlockRow: %d, offset: %d, err: %s\n",
@@ -130,17 +140,14 @@ func TestGetRowOffset(t *testing.T) {
 
 		}
 	}
-	fmt.Println(getRowOffset(0, 10))
-	fmt.Println(getRowOffset(1, 10))
-	fmt.Println(getRowOffset(2, 10))
-	fmt.Println(getRowOffset(3, 10))
-	fmt.Println(getRowOffset(4, 10))
-	fmt.Println(getRowOffset(5, 10))
-	fmt.Println(getRowOffset(6, 10))
-	fmt.Println(getRowOffset(7, 10))
-	fmt.Println(getRowOffset(8, 10))
-	fmt.Println(getRowOffset(9, 10))
-	fmt.Println(getRowOffset(10, 10))
+	fmt.Println(getRowOffset(0, 7))
+	fmt.Println(getRowOffset(1, 7))
+	fmt.Println(getRowOffset(2, 7))
+	fmt.Println(getRowOffset(3, 7))
+	fmt.Println(getRowOffset(4, 7))
+	fmt.Println(getRowOffset(5, 7))
+	fmt.Println(getRowOffset(6, 7))
+	fmt.Println(getRowOffset(7, 7))
 
 	fmt.Println()
 	fmt.Println()

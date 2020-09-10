@@ -91,9 +91,9 @@ func TestCowForestAddDelComp(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if cowF.ToString() != memF.ToString() {
-			fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
-			fmt.Printf("nl %d %s\n", memF.numLeaves, memF.ToString())
+		if cowF.AlwaysToString() != memF.AlwaysToString() {
+			fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.AlwaysToString())
+			fmt.Printf("nl %d %s\n", memF.numLeaves, memF.AlwaysToString())
 			fmt.Println("forestRows in f: ", cowF.rows)
 			t.Fatal("forests are not equal")
 		}
@@ -101,6 +101,8 @@ func TestCowForestAddDelComp(t *testing.T) {
 		fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
 		fmt.Printf("nl %d %s\n", memF.numLeaves, memF.ToString())
 	}
+	fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
+	fmt.Printf("nl %d %s\n", memF.numLeaves, memF.ToString())
 }
 
 func TestCowForestAddDel(t *testing.T) {

@@ -492,8 +492,8 @@ func (f *Forest) reMap(destRows uint8) error {
 	// matter.  Something to program someday if you feel like it for fun.
 	// fmt.Printf("size is %d\n", f.data.size())
 	// rows increase
+	f.data.setRow(destRows) // Must be called before resize for CowForest
 	f.data.resize(2 << destRows)
-	f.data.setRow(destRows)
 	// fmt.Printf("size is %d\n", f.data.size())
 	pos := uint64(1 << destRows) // leftmost position of row 1
 	reach := pos >> 1            // how much to next row up
@@ -737,6 +737,60 @@ func (f *Forest) ToString() string {
 	if fh > 6 {
 		return "forest too big to print "
 	}
+
+	output := make([]string, (fh*2)+1)
+	var pos uint8
+	for h := uint8(0); h <= fh; h++ {
+		rowlen := uint8(1 << (fh - h))
+
+		for j := uint8(0); j < rowlen; j++ {
+			var valstring string
+			ok := f.data.size() >= uint64(pos)
+			if ok {
+				val := f.data.read(uint64(pos))
+				if val != empty {
+					valstring = fmt.Sprintf("%x", val[:2])
+				}
+			}
+			if valstring != "" {
+				output[h*2] += fmt.Sprintf("%02d:%s ", pos, valstring)
+			} else {
+				output[h*2] += "        "
+			}
+			if h > 0 {
+				//				if x%2 == 0 {
+				output[(h*2)-1] += "|-------"
+				for q := uint8(0); q < ((1<<h)-1)/2; q++ {
+					output[(h*2)-1] += "--------"
+				}
+				output[(h*2)-1] += "\\       "
+				for q := uint8(0); q < ((1<<h)-1)/2; q++ {
+					output[(h*2)-1] += "        "
+				}
+
+				//				}
+
+				for q := uint8(0); q < (1<<h)-1; q++ {
+					output[h*2] += "        "
+				}
+
+			}
+			pos++
+		}
+
+	}
+	var s string
+	for z := len(output) - 1; z >= 0; z-- {
+		s += output[z] + "\n"
+	}
+	return s
+
+}
+
+// AlwaysToString prints out the whole thing regardless of the forest size
+func (f *Forest) AlwaysToString() string {
+
+	fh := f.rows
 
 	output := make([]string, (fh*2)+1)
 	var pos uint8

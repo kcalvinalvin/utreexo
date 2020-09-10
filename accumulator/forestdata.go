@@ -187,6 +187,9 @@ type manifest struct {
 	// The current allocated rows in forest
 	forestRows uint8
 
+	// The current allocated treeBlockRows in the CowForest
+	treeBlockRows uint8
+
 	// The latest synced Bitcoin block height
 	currentBlockHeight int32
 
@@ -289,6 +292,43 @@ func (m *manifest) load() error {
 	return nil
 }
 
+// getTreeTablePos grabs the relevant treeBlock position.
+func getTreeTablePos(pos uint64, forestRows uint8) (
+	treeBlockRow uint8, treeTableOffset uint64) {
+	// The row that the current position is on
+	row := detectRow(pos, forestRows)
+
+	// treeBlockRow is the "row" representation of a treeBlock forestRows
+	// treeBlockRow of 0 indicates that it's the bottommost treeBlock.
+	// Our current version has forestRows of 6 for the bottommost and 13
+	// for the treeBlock above that. This is as there are 7 rows per treeBlock
+	// ex: 0~6, 7~13, 14~20
+	treeBlockRow = row / rowPerTreeBlock
+
+	treeTableOffset = grabPrevMult(pos, leavesPerTreeTable) / leavesPerTreeTable
+
+	return
+}
+
+// Rounds down n to the nearest multiple of m. Returns 0 for any n <= m
+func grabPrevMult(n uint64, m uint64) uint64 {
+	// if it's a multiple, just subtract
+	if n%m == 0 {
+		if n == 0 {
+			return 0
+		}
+		return n - m
+	}
+
+	//fmt.Println("n", n)
+	//fmt.Println("n % m", n%m)
+	//fmt.Println("n - (n % m) ", n-(n%m))
+	up := m - (n % m)
+	//fmt.Println("up", up)
+	n += up
+	return n - m
+}
+
 // getTreeBlockPos grabs the relevant treeBlock position.
 func getTreeBlockPos(pos uint64, forestRows uint8) (
 	treeBlockRow uint8, treeBlockOffset uint64, err error) {
@@ -388,31 +428,32 @@ func getRowOffset(row, forestRows uint8) uint64 {
 	return offset
 }
 
-// Translate a global position to its local position.
+// Translate a global position to its local position. This is the leaf position
+// inside a treeBlock. If a treeBlock is of forestRows 6, it's a range of
+// 0-126
 func gPosToLocPos(gPos, offset uint64, treeBlockRow, forestRows uint8) (
 	uint8, uint64) {
+	// Sanity check to see if called with something it can't hold
+	if gPos > getRowOffset(forestRows, forestRows) {
+		s := fmt.Errorf("pos of %d is greater than the max of what forestRows"+
+			"%d can hold\n", gPos, forestRows)
+		panic(s)
+	}
 
-	rowPerTreeBlock := uint8(3)
-	//treeBlockRows := uint8(2)
+	// which row is the node in in the entire forest?
+	globalRow := detectRow(gPos, forestRows)
 
-	//fmt.Println()
-	//fmt.Println()
-	//fmt.Println()
-	//fmt.Println()
-	//fmt.Println()
+	// the first position in the globalRow
+	rowOffset := getRowOffset(globalRow, forestRows)
 
-	row := detectRow(gPos, forestRows)
-	rOffset := getRowOffset(row, forestRows)
-
-	// the position relevant to the row
-	rowPos := gPos - rOffset
-	fmt.Println("rOffset", rOffset)
+	//
+	rowPos := gPos - rowOffset
 
 	// total leaves in the forest
 	leafCount := 1 << forestRows
 
 	// total nodes in this row
-	nodeCountAtRow := leafCount >> row
+	nodeCountAtRow := leafCount >> globalRow
 	//fmt.Println("nodeCountAtRow", nodeCountAtRow)
 
 	// total nodes in this treeBlockRow
@@ -435,11 +476,36 @@ func gPosToLocPos(gPos, offset uint64, treeBlockRow, forestRows uint8) (
 	//fmt.Println("treeBlockCountAtRow", treeBlockCountAtRow)
 
 	rowBlockOffset := offset * uint64(nodeCountAtRow/treeBlockCountAtRow)
+	fmt.Println("rowBlockOffset", rowBlockOffset)
+	fmt.Println("nodeCountAtTreeBlockRow", nodeCountAtTreeBlockRow)
 	locPos := rowPos - rowBlockOffset
-	locRow := (row - (rowPerTreeBlock * treeBlockRow))
+	locRow := (globalRow - (rowPerTreeBlock * treeBlockRow))
+
+	fmt.Println("rowPos", rowPos)
+	if locRow > 6 {
+		s := fmt.Sprintln("gpos", gPos)
+		s += fmt.Sprintln("treeBlockOffset", offset)
+		s += fmt.Sprintln("treeBlockRow", treeBlockRow)
+		s += fmt.Sprintln("forestRows", forestRows)
+		s += fmt.Sprintln("locRow", locRow)
+		s += fmt.Sprintln("locPos", locPos)
+		panic("locRow is greater than 6" + s)
+	}
+
+	if locPos > 63 {
+		// uint64 underflows. No position can be greater than 63 in
+		// a treeBlock anyways
+		locPos = 0
+		//s := fmt.Sprintln("gpos", gPos)
+		//s += fmt.Sprintln("treeBlockOffset", offset)
+		//s += fmt.Sprintln("treeBlockRow", treeBlockRow)
+		//s += fmt.Sprintln("forestRows", forestRows)
+		//s += fmt.Sprintln("locRow", locRow)
+		//s += fmt.Sprintln("locPos", locPos)
+		//panic("locPos is greater than 63" + s)
+	}
 
 	return locRow, locPos
-
 }
 
 /*
@@ -556,6 +622,7 @@ func initialize(path string) (*cowForest, error) {
 		meta: metadata{fBasePath: path},
 	}
 	cow.cachedTreeTables = make(map[uint64]*treeTable)
+	cow.manifest.location = append(cow.manifest.location, []uint64{})
 	return &cow, nil
 }
 
@@ -574,9 +641,15 @@ func (cow *cowForest) read(pos uint64) Hash {
 		//return Hash{}, err
 		panic(err)
 	}
+	_, treeTableOffset := getTreeTablePos(pos, cow.manifest.forestRows)
+
+	fmt.Println("loc", cow.manifest.location)
+	fmt.Println("treeBlockOffset", treeBlockOffset)
+	fmt.Println("treeBlockRow", treeBlockRow)
+	fmt.Println("treeTableOffset", treeTableOffset)
 
 	// grab the treeTable location. This is just a number for the .ufod file
-	location := cow.manifest.location[treeBlockRow][treeBlockOffset/treeBlockPerTable]
+	location := cow.manifest.location[treeBlockRow][treeTableOffset]
 
 	// check if it exists in memory
 	table, found := cow.cachedTreeTables[location]
@@ -596,15 +669,21 @@ func (cow *cowForest) read(pos uint64) Hash {
 	//fmt.Println("IS TABLE FOUND?", found)
 	//fmt.Println(table.memTreeBlocks)
 	//fmt.Println("FETCH", treeBlockOffset%treeBlockPerTable)
-	treeBlock := table.memTreeBlocks[treeBlockOffset%treeBlockPerTable]
+	tb := table.memTreeBlocks[treeBlockOffset%treeBlockPerTable]
+	if tb == nil {
+		fmt.Println("TREEBLOCK IS NIL")
+		tb = new(treeBlock)
+	}
 
-	locRow, localPos := gPosToLocPos(pos, treeBlockOffset, treeBlockRow, treeBlockRows<<treeBlockRow)
+	locRow, localPos := gPosToLocPos(
+		pos, treeBlockOffset, treeBlockRow, cow.manifest.forestRows)
+	fmt.Println("locRow and localPos", locRow, localPos)
+	fetch := localPos + getRowOffset(locRow, 6)
 
-	fetch := localPos + getRowOffset(locRow, treeBlockRows<<treeBlockRow)
-
-	fmt.Println("fetch", fetch)
-	hash := treeBlock.leaves[fetch]
+	fmt.Println("fetch read", fetch)
+	hash := tb.leaves[fetch]
 	if hash == empty {
+		fmt.Println(table)
 		fmt.Println("WARNING. Hash is empty, may crash")
 		fmt.Println("gpos", pos)
 		fmt.Println("localpos", localPos)
@@ -628,38 +707,33 @@ func (cow *cowForest) read(pos uint64) Hash {
 // NOTE The treeBlocks on disk are not changed. commit must be called for that
 func (cow *cowForest) write(pos uint64, h Hash) {
 	fmt.Printf("WRITE CALLED on pos: %d with hash: %x\n", pos, h)
-	if h == empty {
-		fmt.Println("asked to write empty hash to pos:", pos)
+
+	if pos > getRowOffset(cow.manifest.forestRows, cow.manifest.forestRows) {
+		s := fmt.Errorf("pos of %d is greater than the max of what forestRows"+
+			"%d can hold\n", pos, cow.manifest.forestRows)
+		panic(s)
 	}
-	var emptyBeforeWrite bool
-	if pos == 24 {
-		if cow.read(pos) == empty {
-			fmt.Println("gpos 27 is empty before write")
-			emptyBeforeWrite = true
-		}
-		fmt.Println("Write pos gpos 27 called")
-	}
-	if pos == 76 {
-		if cow.read(pos) == empty {
-			fmt.Println("gpos 76 is empty before write")
-			emptyBeforeWrite = true
-		}
-		fmt.Println("Write pos gpos 76 called")
-	}
+
 	treeBlockRow, treeBlockOffset, err := getTreeBlockPos(pos, cow.manifest.forestRows)
 	if err != nil {
 		//return Hash{}, err
 		panic(err)
 	}
+	_, treeTableOffset := getTreeTablePos(pos, cow.manifest.forestRows)
+
+	fmt.Println("loc", cow.manifest.location)
+	fmt.Println("treeBlockRow", cow.manifest.location[treeBlockRow])
+	fmt.Println("treeBlockOffset", treeBlockOffset)
 
 	// grab the treeTable location. This is just a number for the .ufod file
-	location := cow.manifest.location[treeBlockRow][treeBlockOffset/treeBlockPerTable]
+	location := cow.manifest.location[treeBlockRow][treeTableOffset]
 
 	// check if it exists in memory
 	table, found := cow.cachedTreeTables[location]
 
 	// if not found in memory, load then update the fileNum
 	if !found {
+		fmt.Println("TABLE NOT FOUND IN MEMORY")
 		err = cow.load(location)
 		if err != nil {
 			//return Hash{}, err
@@ -684,35 +758,27 @@ func (cow *cowForest) write(pos uint64, h Hash) {
 	}
 
 	locRow, localPos := gPosToLocPos(
-		pos, treeBlockOffset, treeBlockRow, treeBlockRows<<treeBlockRow)
+		pos, treeBlockOffset, treeBlockRow, cow.manifest.forestRows)
+	fmt.Println(locRow, localPos)
 
-	fetch := localPos + getRowOffset(locRow, treeBlockRows<<treeBlockRow)
-	fmt.Println("fetch", fetch)
+	fetch := localPos + getRowOffset(locRow, 6)
+	fmt.Println("fetch write", fetch)
 
+	// there there is no treeBlock, then attach one
 	if table.memTreeBlocks[treeBlockOffset%treeBlockPerTable] == nil {
 		table.memTreeBlocks[treeBlockOffset%treeBlockPerTable] = new(treeBlock)
 	}
-	fmt.Println("FETCH", fetch)
 	// FIXME add locRow to index
 	table.memTreeBlocks[treeBlockOffset%treeBlockPerTable].leaves[fetch] = h
 
-	if pos == 24 {
-		if cow.read(pos) == empty {
-			fmt.Println(h)
-			fmt.Println("AFTER WRITE gpos 24 IS EMPTY")
-			fmt.Println("EMPTYBEFOREWRITE", emptyBeforeWrite)
-		}
-	}
-	if pos == 76 {
-		if cow.read(pos) == empty {
-			fmt.Println(h)
-			fmt.Println("AFTER WRITE gpos 76 IS EMPTY")
-			fmt.Println("EMPTYBEFOREWRITE", emptyBeforeWrite)
-		}
-	}
-
-	if cow.read(pos) != h {
-		panic("the hash written doesn't equal what's supposed to be written")
+	compH := cow.read(pos)
+	if compH != h {
+		fmt.Println(cow.cachedTreeTables)
+		fmt.Println(table)
+		fmt.Printf("%x\n", table.memTreeBlocks[treeBlockOffset%treeBlockPerTable].leaves[fetch])
+		err := fmt.Errorf("the hash written doesn't equal what's supposed to be written"+
+			"written %x but read %x\n", h, compH)
+		panic(err)
 	}
 	fmt.Printf("hash:%x\n", h.Mini())
 	fmt.Println("gpos", pos)
@@ -721,7 +787,7 @@ func (cow *cowForest) write(pos uint64, h Hash) {
 	fmt.Println("treeBlockOffset", treeBlockOffset)
 	fmt.Println("forestRows", cow.manifest.forestRows)
 	fmt.Println("WRITE RETURN")
-	fmt.Printf("%x\n", table.memTreeBlocks[0].leaves)
+	//fmt.Printf("%x\n", table.memTreeBlocks[0].leaves)
 }
 
 // swapHash takes in two hashes and atomically swaps them.
@@ -759,29 +825,6 @@ func (cow *cowForest) swapHash(a, b uint64) {
 
 	cow.write(a, bHash)
 	cow.write(b, aHash)
-
-	if a == 27 {
-		if empty == cow.read(a) {
-			panic("empty hash")
-		}
-	}
-
-	if a == 76 {
-		if empty == cow.read(a) {
-			panic("empty hash")
-		}
-	}
-
-	if b == 27 {
-		if empty == cow.read(b) {
-			panic("empty hash")
-		}
-	}
-	if b == 76 {
-		if empty == cow.read(b) {
-			panic("empty hash")
-		}
-	}
 
 	// update the table number
 	/*
@@ -957,28 +1000,25 @@ func (cow *cowForest) size() uint64 {
 
 func (cow *cowForest) resize(newSize uint64) {
 	fmt.Println("RESIZE CALLED")
-	// get the table count for bottom row
-	//bRowSize := cow.size()
 
-	// If what we currently have is bigger or euqal, no need to do anything
-	/*
-		if uint64(bRowSize) > newSize {
-			return
-		}
-	*/
+	treeBlockRows := cow.manifest.forestRows / rowPerTreeBlock
+
+	if len(cow.manifest.location) <= int(treeBlockRows) {
+		cow.manifest.location = append(cow.manifest.location, []uint64{})
+	}
 
 	// append new treeTables as needed
-	for i := uint8(0); i <= cow.manifest.forestRows; i++ {
-		leafCountAtRow := 1 << i
-
+	for row := uint8(0); row <= treeBlockRows; row++ {
+		currentCap := len(cow.manifest.location[row]) * leavesPerTreeTable
 		// only add new tables if the current row can't hold what's needed
-		for newSize > uint64(leafCountAtRow) {
-			cow.newTable(i)
-			leafCountAtRow += treeBlockPerTable
+		// FIXME a treeTable holds 65000 leaves... we're allocating too many
+		for newSize > uint64(currentCap) {
+			cow.newTable(row)
+			currentCap += treeBlockPerTable
 		}
 
 		// size for the next row
-		newSize = newSize / 2
+		//newSize = newSize / 2
 	}
 
 	// update forestRows
@@ -986,12 +1026,11 @@ func (cow *cowForest) resize(newSize uint64) {
 	// but you'd need to change the interface for that
 	//cow.manifest.forestRows = treeRows(newSize)
 	//cow.manifest.forestRows += 3
-	fmt.Println("NEWSIZE:", newSize)
-	fmt.Println("FORESTROWS IN DATA", cow.manifest.forestRows)
 	fmt.Println("RESIZE RETURN")
 }
 
 func (cow *cowForest) setRow(row uint8) {
+	fmt.Println("SETROW TO:", row)
 	cow.manifest.forestRows = row
 }
 
