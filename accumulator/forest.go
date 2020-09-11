@@ -522,9 +522,6 @@ func (f *Forest) reMap(destRows uint8) error {
 	}
 
 	f.rows = destRows
-	fmt.Println("FORESTROWS IN FOREST.GO:", f.rows)
-	fmt.Println(destRows)
-	fmt.Println(f.rows)
 	return nil
 }
 

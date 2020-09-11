@@ -3,6 +3,7 @@ package accumulator
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"reflect"
 	"sort"
 	"testing"
@@ -50,6 +51,7 @@ func TestForestAddDel(t *testing.T) {
 		fmt.Printf("nl %d %s", f.numLeaves, f.ToString())
 	}
 }
+
 func TestCowForestAddDelComp(t *testing.T) {
 
 	numAdds := uint32(10)
@@ -60,7 +62,7 @@ func TestCowForestAddDelComp(t *testing.T) {
 	sc := NewSimChain(0x07)
 	sc.lookahead = 400
 
-	for b := 0; b < 1000; b++ {
+	for b := 0; b < 50000; b++ {
 
 		adds, _, delHashes := sc.NextBlock(numAdds)
 
@@ -91,18 +93,48 @@ func TestCowForestAddDelComp(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if cowF.AlwaysToString() != memF.AlwaysToString() {
-			fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.AlwaysToString())
-			fmt.Printf("nl %d %s\n", memF.numLeaves, memF.AlwaysToString())
-			fmt.Println("forestRows in f: ", cowF.rows)
-			t.Fatal("forests are not equal")
+		if b%1000 == 0 {
+			if !checkIfEqual(cowF, memF) {
+				fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.AlwaysToString())
+				fmt.Printf("nl %d %s\n", memF.numLeaves, memF.AlwaysToString())
+				fmt.Println("forestRows in f: ", cowF.rows)
+				t.Fatal("forests are not equal")
+			}
 		}
+		fmt.Println("height is: ", b)
 
 		fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
 		fmt.Printf("nl %d %s\n", memF.numLeaves, memF.ToString())
+		if b == 26199 {
+			f, err := os.OpenFile("cowlog", os.O_RDWR, 666)
+			if err != nil {
+				panic(err)
+			}
+			mem, err := os.OpenFile("memlog", os.O_RDWR, 666)
+			if err != nil {
+				panic(err)
+			}
+			_, err = f.WriteString(cowF.AlwaysToString())
+			if err != nil {
+				panic(err)
+			}
+			_, err = mem.WriteString(memF.AlwaysToString())
+			if err != nil {
+				panic(err)
+			}
+		}
 	}
 	fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
 	fmt.Printf("nl %d %s\n", memF.numLeaves, memF.ToString())
+}
+
+func checkIfEqual(cowF, memF *Forest) bool {
+	for i := uint64(0); i <= memF.numLeaves; i++ {
+		if cowF.data.read(i) != memF.data.read(i) {
+			return false
+		}
+	}
+	return true
 }
 
 func TestCowForestAddDel(t *testing.T) {
@@ -115,7 +147,7 @@ func TestCowForestAddDel(t *testing.T) {
 	sc := NewSimChain(0x07)
 	sc.lookahead = 400
 
-	for b := 0; b < 5; b++ {
+	for b := 0; b < 1000; b++ {
 
 		adds, _, delHashes := sc.NextBlock(numAdds)
 
@@ -124,40 +156,13 @@ func TestCowForestAddDel(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		/*
-			memBP, err := memF.ProveBatch(delHashes)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(cowBP, memBP) {
-				fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
-				fmt.Printf("nl %d %s\n", memF.numLeaves, memF.ToString())
-				t.Fatal("cowBP and memBP are not equal")
-			}
-		*/
-
 		cowBP.SortTargets()
 		_, err = cowF.Modify(adds, cowBP.Targets)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		/*
-			memBP.SortTargets()
-			_, err = memF.Modify(adds, memBP.Targets)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			if cowF.ToString() != memF.ToString() {
-				fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
-				fmt.Printf("nl %d %s\n", memF.numLeaves, memF.ToString())
-				t.Fatal("forests are not equal")
-			}
-		*/
-
 		fmt.Printf("nl %d %s\n", cowF.numLeaves, cowF.ToString())
-		//fmt.Printf("nl %d %s\n", memF.numLeaves, memF.ToString())
 	}
 }
 
