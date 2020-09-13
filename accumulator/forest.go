@@ -135,13 +135,6 @@ func NewForest(forestFile *os.File, cached bool,
 	}
 
 	f.data.resize(1)
-	//f.reMap(f.rows + 1)
-	//f.reMap(f.rows + 1)
-	//f.reMap(f.rows + 1)
-	//f.reMap(f.rows + 1)
-	//f.reMap(f.rows + 1)
-	//f.reMap(f.rows + 1)
-	//f.reMap(f.rows + 1)
 	f.positionMap = make(map[MiniHash]uint64)
 	return f
 }
@@ -562,7 +555,8 @@ func (f *Forest) PosMapSanity() error {
 // RestoreForest restores the forest on restart. Needed when resuming after exiting.
 // miscForestFile is where numLeaves and rows is stored
 func RestoreForest(
-	miscForestFile *os.File, forestFile *os.File, toRAM, cached bool) (*Forest, error) {
+	miscForestFile *os.File, forestFile *os.File, toRAM, cached bool, cow string) (
+	*Forest, error) {
 
 	// start a forest for restore
 	f := new(Forest)
@@ -613,6 +607,13 @@ func RestoreForest(
 		// }
 		// }
 
+	} else if cow != "" {
+		cowData, err := load(cow)
+		if err != nil {
+			return nil, err
+		}
+
+		f.data = cowData
 	} else {
 		if cached {
 			// on disk, with cache

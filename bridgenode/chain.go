@@ -49,7 +49,7 @@ func initBridgeNodeState(
 	if util.HasAccess(util.ForestFilePath) {
 		fmt.Println("Has access to forestdata, resuming")
 		forest, err = restoreForest(
-			util.ForestFilePath, util.MiscForestFilePath, forestInRam, forestCached)
+			util.ForestFilePath, util.MiscForestFilePath, forestInRam, forestCached, cowForest)
 		if err != nil {
 			err = fmt.Errorf("restoreForest error: %s", err.Error())
 			return

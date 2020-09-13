@@ -47,6 +47,8 @@ func TestGrabPrevMult(t *testing.T) {
 	fmt.Println(grabPrevMult((leavesPerTreeTable*2)+1, leavesPerTreeTable))
 
 	fmt.Println(grabPrevMult(254, leavesPerTreeTable))
+
+	fmt.Println(grabPrevMult(65536, leavesPerTreeTable-1))
 }
 
 /*
@@ -91,8 +93,8 @@ func TestGetTreeBlockPos(t *testing.T) {
 	//maxCachedTables := 1
 
 	//pos := uint64(1040384)
-	pos := uint64(254)
-	forestRows := uint8(7)
+	pos := uint64(79)
+	forestRows := uint8(17)
 	treeBlockRow, offset, err := getTreeBlockPos(pos, forestRows)
 	fmt.Printf("For pos: %d, forestRows: %d\n", pos, forestRows)
 	fmt.Printf("treeBlockRow: %d, offset: %d, err: %s\n",
@@ -152,7 +154,22 @@ func TestGetRowOffset(t *testing.T) {
 	fmt.Println()
 	fmt.Println()
 	fmt.Println()
-	fmt.Println(getRowOffset(3, 3))
+	fmt.Println(getRowOffset(0, 16))
+	fmt.Println(getRowOffset(1, 16))
+	fmt.Println(getRowOffset(2, 16))
+	fmt.Println(getRowOffset(3, 16))
+	fmt.Println(getRowOffset(4, 16))
+	fmt.Println(getRowOffset(5, 16))
+	fmt.Println(getRowOffset(6, 16))
+	fmt.Println(getRowOffset(7, 16))
+	fmt.Println(getRowOffset(8, 16))
+	fmt.Println(getRowOffset(9, 16))
+	fmt.Println(getRowOffset(10, 16))
+	fmt.Println(getRowOffset(11, 16))
+	fmt.Println(getRowOffset(12, 16))
+	fmt.Println(getRowOffset(13, 16))
+	fmt.Println(getRowOffset(14, 16))
+	fmt.Println(getRowOffset(15, 16))
 }
 
 func TestGetTreeBlockPosRange(t *testing.T) {
@@ -163,4 +180,9 @@ func TestGetTreeBlockPosRange(t *testing.T) {
 	fmt.Println("posSameOffset:", posSameOffset)
 	fmt.Println("treeBlockOffsets:", treeBlockOffsets)
 	fmt.Println("treeBlockRow:", treeBlockRow)
+}
+
+func TestGetTreeTablePos(t *testing.T) {
+	row, offset := getTreeTablePos(65536, 17)
+	fmt.Printf("row is: %d, offest is: %d\n", row, offset)
 }

@@ -3,6 +3,7 @@ package bridgenode
 import (
 	"encoding/binary"
 	"os"
+	"path/filepath"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/mit-dci/utreexo/accumulator"
@@ -45,7 +46,7 @@ func createForest(inRam, cached bool, cowForest bool) (
 	}
 
 	if cowForest {
-		path := util.ForestFilePath + "cow"
+		path := filepath.Join(util.ForestDirPath + "/cow/")
 		forest = accumulator.NewForest(nil, false, path)
 		return
 	}
@@ -67,7 +68,10 @@ func createForest(inRam, cached bool, cowForest bool) (
 // on disk.
 func restoreForest(
 	forestFilename, miscFilename string,
-	inRam, cached bool) (forest *accumulator.Forest, err error) {
+	inRam, cached, cow bool) (forest *accumulator.Forest, err error) {
+
+	if cow {
+	}
 
 	// Where the forestfile exists
 	forestFile, err := os.OpenFile(forestFilename, os.O_RDWR, 0400)
@@ -80,7 +84,9 @@ func restoreForest(
 		return
 	}
 
-	forest, err = accumulator.RestoreForest(miscForestFile, forestFile, inRam, cached)
+	cowPath := filepath.Join(util.ForestDirPath + "/cow/")
+	forest, err = accumulator.RestoreForest(
+		miscForestFile, forestFile, inRam, cached, cowPath)
 	return
 }
 
