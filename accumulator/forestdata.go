@@ -330,11 +330,11 @@ func (m *manifest) load(path string) error {
 	fmt.Println("forestRows:", m.forestRows)
 
 	// 2. Read currentBlockHeight
-	m.currentBlockHeight = int32(binary.LittleEndian.Uint32(buf[1:]))
+	m.currentBlockHeight = int32(binary.LittleEndian.Uint32(buf[1:5]))
 	fmt.Println("currentBlockHeight:", m.currentBlockHeight)
 
 	// 3. Read fileNum
-	m.fileNum = binary.LittleEndian.Uint64(buf[5:])
+	m.fileNum = binary.LittleEndian.Uint64(buf[5:13])
 	fmt.Println("fileNum", m.fileNum)
 
 	// 4. Read currentBlockHash
@@ -1246,17 +1246,27 @@ func (cow *cowForest) load(fileNum uint64) error {
 
 	//var leaves [127]Hash
 	var leaves [4064]byte
+	//var leaves []byte
 	//var meta [32]byte
 	newTable := new(treeTable)
 
+	uint16Buf := make([]byte, 2)
+	// FIXME read the length first
+	treeBlockCount, err := buf.Read(uint16Buf)
+	if err != nil {
+		return err
+	}
+
 	// treeBlockPerTable treeBlocks in a treeTable
 	// FIXME Some treeTables may have less than 1024 treeBlocks
-	for i := 0; i < treeBlockPerTable; i++ {
+	for i := 0; i < treeBlockCount; i++ {
 		tb := new(treeBlock)
 		//buf.Read(meta[:])
 		buf.Read(leaves[:])
 
 		for j := 0; j < 127; j++ {
+			//fmt.Println(tb.leaves[j])
+			//fmt.Println(len(tb.leaves[j]))
 			offset := j * 32
 			copy(tb.leaves[j][:], leaves[offset:offset+31])
 		}
@@ -1267,6 +1277,7 @@ func (cow *cowForest) load(fileNum uint64) error {
 	// set map
 	cow.cachedTreeTables[fileNum] = newTable
 
+	fmt.Println(cow.cachedTreeTables)
 	return nil
 }
 
