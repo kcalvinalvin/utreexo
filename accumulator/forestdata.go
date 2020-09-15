@@ -210,20 +210,37 @@ func (m *manifest) commit(basePath string) error {
 	}
 
 	// This is the bytes to be written
-	buf := make([]byte, 45) //+locLength) // locLength is variable
+	var buf []byte //+locLength) // locLength is variable
 
 	// 1. Append forestRows
 	buf = append(buf, byte(m.forestRows))
 
+	fmt.Println("buf len1 ", len(buf))
+
 	// 2. Append currentBlockHeight
-	binary.LittleEndian.PutUint32(buf, uint32(m.currentBlockHeight))
+	var bHeight [4]byte
+	binary.LittleEndian.PutUint32(bHeight[:], uint32(m.currentBlockHeight))
+	buf = append(buf, bHeight[:]...)
+
+	fmt.Println("buf len2 ", len(buf))
+	fmt.Println(buf)
 
 	// 3. Append fileNum
-	binary.LittleEndian.PutUint64(buf, uint64(m.fileNum))
+	var fNum [8]byte
+	binary.LittleEndian.PutUint64(fNum[:], uint64(m.fileNum))
+	buf = append(buf, fNum[:]...)
+
+	fmt.Println("buf len3 ", len(buf))
+	fmt.Println(buf)
 
 	// 4. Append currentBlockHash
 	buf = append(buf, m.currentBlockHash[:]...)
+	fmt.Println(buf)
 
+	fmt.Println("buf len4 ", len(buf))
+	fmt.Println("curBH", m.currentBlockHash)
+
+	fmt.Println(m.location)
 	// 5. Append locations
 	for _, row := range m.location {
 		// append the length of the row
@@ -234,9 +251,9 @@ func (m *manifest) commit(basePath string) error {
 
 		// append the actual row
 		rowBytes := []byte{}
-		uint64Buf := make([]byte, binary.MaxVarintLen64)
 
 		for _, element := range row {
+			uint64Buf := make([]byte, binary.MaxVarintLen64)
 			binary.LittleEndian.PutUint64(uint64Buf, element)
 			rowBytes = append(rowBytes, uint64Buf...)
 		}
@@ -244,6 +261,7 @@ func (m *manifest) commit(basePath string) error {
 		buf = append(buf, rowBytes...)
 	}
 
+	fmt.Println(len(buf))
 	_, err = fNewManifest.Write(buf)
 	if err != nil {
 		return err
@@ -289,7 +307,9 @@ func (m *manifest) load(path string) error {
 		return err
 	}
 
-	maniFile, err := os.Open(string(manifestBytes[:]))
+	maniFilePath := filepath.Join(path, string(manifestBytes[:]))
+
+	maniFile, err := os.Open(maniFilePath)
 	if err != nil {
 		return err
 	}
@@ -297,38 +317,48 @@ func (m *manifest) load(path string) error {
 	// 45 bytes are all that's needed to load except for the locations
 	buf := make([]byte, 45)
 
+	//buf, err := ioutil.ReadAll(maniFile)
 	_, err = maniFile.Read(buf)
 	if err != nil {
 		return err
 	}
+	fmt.Println(buf)
+	fmt.Println(len(buf))
 
 	// 1. Read forestRows
 	m.forestRows = uint8(buf[0])
+	fmt.Println("forestRows:", m.forestRows)
 
 	// 2. Read currentBlockHeight
-	m.currentBlockHeight = int32(binary.LittleEndian.Uint32(buf[1:4]))
+	m.currentBlockHeight = int32(binary.LittleEndian.Uint32(buf[1:]))
+	fmt.Println("currentBlockHeight:", m.currentBlockHeight)
 
 	// 3. Read fileNum
-	m.fileNum = binary.LittleEndian.Uint64(buf[5:12])
+	m.fileNum = binary.LittleEndian.Uint64(buf[5:])
+	fmt.Println("fileNum", m.fileNum)
 
 	// 4. Read currentBlockHash
-	m.fileNum = binary.LittleEndian.Uint64(buf[13:45])
-
-	sizeBuf := make([]byte, 4)
+	copy(m.currentBlockHash[:], buf[13:45])
+	fmt.Println("curBlockH", m.currentBlockHash)
 
 	var treeBlockRow int
 	// 5. Append locations
 	for {
+		sizeBuf := make([]byte, 4)
+
 		_, err := maniFile.Read(sizeBuf)
 		if err != nil {
 			if err == io.EOF {
+				fmt.Println("EOF")
 				break
 			}
 			return err
 		}
+		m.location = append(m.location, []uint64{})
 
 		rowSize := binary.LittleEndian.Uint32(sizeBuf)
-		rowBytes := make([]byte, rowSize)
+		fmt.Println("rowsize", rowSize)
+		rowBytes := make([]byte, rowSize*binary.MaxVarintLen64)
 
 		_, err = maniFile.Read(rowBytes)
 		if err != nil {
@@ -336,10 +366,13 @@ func (m *manifest) load(path string) error {
 		}
 
 		for i := uint32(0); i < rowSize; i++ {
-			m.location[treeBlockRow][i] = binary.LittleEndian.Uint64(rowBytes[i : i+31])
+			//m.location[treeBlockRow][i] = binary.LittleEndian.Uint64(rowBytes[i : i+10])
+			m.location[treeBlockRow] = append(m.location[treeBlockRow],
+				binary.LittleEndian.Uint64(rowBytes[i:i+10]))
 		}
 		treeBlockRow++
 	}
+	fmt.Println(m.location)
 
 	return nil
 }
@@ -607,11 +640,11 @@ type treeTable struct {
 func (tt *treeTable) serialize() (uint16, []byte) {
 	// 127 nodes per treeBlock, 1024 treeBlocks in a treeTable, 32 byte hashes
 	buf := make([]byte, 127*1024*32)
-	fmt.Println(tt.memTreeBlocks)
+	//fmt.Println(tt.memTreeBlocks)
 	var treeBlockCount uint16
 	for _, tb := range tt.memTreeBlocks {
 		if tb == nil {
-			fmt.Println("TREEBLOCK IS NIL")
+			//fmt.Println("TREEBLOCK IS NIL")
 			break
 		}
 		treeBlockCount++
@@ -715,6 +748,8 @@ func load(path string) (*cowForest, error) {
 		meta:     m,
 	}
 
+	cow.cachedTreeTables = make(map[uint64]*treeTable)
+
 	return &cow, nil
 }
 
@@ -761,6 +796,7 @@ func (cow *cowForest) read(pos uint64) Hash {
 	tb := table.memTreeBlocks[treeBlockOffset%treeBlockPerTable]
 	if tb == nil {
 		//fmt.Println("TREEBLOCK IS NIL")
+
 		tb = new(treeBlock)
 	}
 
@@ -1077,6 +1113,7 @@ func (cow *cowForest) setRow(row uint8) {
 }
 
 func (cow *cowForest) close() {
+	fmt.Println("COWFOREST CLOSE")
 	// commit the current forest
 	err := cow.commit()
 	if err != nil {
@@ -1211,15 +1248,21 @@ func (cow *cowForest) load(fileNum uint64) error {
 	var leaves [4064]byte
 	//var meta [32]byte
 	newTable := new(treeTable)
+
 	// treeBlockPerTable treeBlocks in a treeTable
+	// FIXME Some treeTables may have less than 1024 treeBlocks
 	for i := 0; i < treeBlockPerTable; i++ {
+		tb := new(treeBlock)
 		//buf.Read(meta[:])
 		buf.Read(leaves[:])
-		for j := 0; j < 32; j++ {
+
+		for j := 0; j < 127; j++ {
 			offset := j * 32
-			copy(newTable.memTreeBlocks[i].leaves[j][:],
-				leaves[offset:offset+31])
+			copy(tb.leaves[j][:], leaves[offset:offset+31])
 		}
+
+		newTable.memTreeBlocks[i] = tb
+
 	}
 	// set map
 	cow.cachedTreeTables[fileNum] = newTable
@@ -1360,6 +1403,7 @@ func (d *diskForestData) resize(newSize uint64) {
 }
 
 func (d *diskForestData) close() {
+	fmt.Println("DISKFOREST CLOSE")
 	err := d.file.Close()
 	if err != nil {
 		fmt.Printf("diskForestData close error: %s\n", err.Error())

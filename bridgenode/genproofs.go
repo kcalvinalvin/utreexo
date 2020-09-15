@@ -145,7 +145,7 @@ func BuildProofs(
 	fileWait.Wait()
 
 	// Save the current state so genproofs can be resumed
-	err = saveBridgeNodeData(forest, height, forestInRam)
+	err = saveBridgeNodeData(forest, height, forestInRam, cowForest)
 	if err != nil {
 		panic(err)
 	}

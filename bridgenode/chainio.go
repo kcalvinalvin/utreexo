@@ -71,28 +71,38 @@ func restoreForest(
 	inRam, cached, cow bool) (forest *accumulator.Forest, err error) {
 
 	if cow {
-	}
+		var miscForestFile *os.File
+		// Where the misc forest data exists
+		miscForestFile, err = os.OpenFile(miscFilename, os.O_RDONLY, 0400)
+		if err != nil {
+			return nil, err
+		}
+		cowPath := filepath.Join(util.ForestDirPath + "/cow/")
+		forest, err = accumulator.RestoreForest(
+			miscForestFile, nil, false, false, cowPath)
+	} else {
 
-	// Where the forestfile exists
-	forestFile, err := os.OpenFile(forestFilename, os.O_RDWR, 0400)
-	if err != nil {
-		return
-	}
-	// Where the misc forest data exists
-	miscForestFile, err := os.OpenFile(miscFilename, os.O_RDONLY, 0400)
-	if err != nil {
-		return
-	}
+		var forestFile *os.File
+		var miscForestFile *os.File
+		// Where the forestfile exists
+		forestFile, err = os.OpenFile(forestFilename, os.O_RDWR, 0400)
+		if err != nil {
+			return
+		}
+		// Where the misc forest data exists
+		miscForestFile, err = os.OpenFile(miscFilename, os.O_RDONLY, 0400)
+		if err != nil {
+			return
+		}
 
-	cowPath := filepath.Join(util.ForestDirPath + "/cow/")
-	forest, err = accumulator.RestoreForest(
-		miscForestFile, forestFile, inRam, cached, cowPath)
+		forest, err = accumulator.RestoreForest(
+			miscForestFile, forestFile, inRam, cached, "")
+	}
 	return
 }
 
 // restoreHeight restores height from util.ForestLastSyncedBlockHeightFilePath
 func restoreHeight() (height int32, err error) {
-
 	// if there is a heightfile, get the height from that
 	// heightFile saves the last block that was written to ttldb
 	if util.HasAccess(util.ForestLastSyncedBlockHeightFilePath) {
