@@ -2,6 +2,7 @@ package accumulator
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -216,6 +217,7 @@ func (m *manifest) commit(basePath string) error {
 	buf = append(buf, byte(m.forestRows))
 
 	fmt.Println("buf len1 ", len(buf))
+	fmt.Println("forestRows:", m.forestRows)
 
 	// 2. Append currentBlockHeight
 	var bHeight [4]byte
@@ -224,6 +226,7 @@ func (m *manifest) commit(basePath string) error {
 
 	fmt.Println("buf len2 ", len(buf))
 	fmt.Println(buf)
+	fmt.Println("currentBlockHeight:", m.currentBlockHeight)
 
 	// 3. Append fileNum
 	var fNum [8]byte
@@ -231,7 +234,7 @@ func (m *manifest) commit(basePath string) error {
 	buf = append(buf, fNum[:]...)
 
 	fmt.Println("buf len3 ", len(buf))
-	fmt.Println(buf)
+	fmt.Println("fileNum", m.fileNum)
 
 	// 4. Append currentBlockHash
 	buf = append(buf, m.currentBlockHash[:]...)
@@ -247,6 +250,7 @@ func (m *manifest) commit(basePath string) error {
 		uint32Buf := make([]byte, 4)
 
 		binary.LittleEndian.PutUint32(uint32Buf[:], uint32(len(row)))
+		fmt.Println("rowsize", len(row))
 		buf = append(buf, uint32Buf...)
 
 		// append the actual row
@@ -367,8 +371,12 @@ func (m *manifest) load(path string) error {
 
 		for i := uint32(0); i < rowSize; i++ {
 			//m.location[treeBlockRow][i] = binary.LittleEndian.Uint64(rowBytes[i : i+10])
-			m.location[treeBlockRow] = append(m.location[treeBlockRow],
-				binary.LittleEndian.Uint64(rowBytes[i:i+10]))
+			fmt.Println(rowBytes)
+			start := i * binary.MaxVarintLen64
+			rowToAppend := binary.LittleEndian.Uint64(
+				rowBytes[start : start+binary.MaxVarintLen64])
+			fmt.Println(rowToAppend)
+			m.location[treeBlockRow] = append(m.location[treeBlockRow], rowToAppend)
 		}
 		treeBlockRow++
 	}
@@ -391,12 +399,23 @@ type treeBlock struct {
 // converts a treeBlock to byte slice
 func (tb *treeBlock) serialize() []byte {
 	// 127 nodes in a treeBlock, 32 bytes per sha256
-	buf := make([]byte, 127*32)
+	//buf := make([]byte, 127*32)
+	var buf []byte
 	//fmt.Println(tb.leaves)
 	for _, leaf := range tb.leaves {
 		buf = append(buf, leaf[:]...)
 	}
 	return buf
+}
+
+// takes a byte slice and spits out a treeBlock
+func deserializeTreeBlock(buf []byte) *treeBlock {
+	tb := new(treeBlock)
+	for i := 0; i < 127; i++ {
+		offset := i * 32
+		copy(tb.leaves[i][:], buf[offset:offset+32])
+	}
+	return tb
 }
 
 // getTreeBlockPos grabs the relevant treeBlock position.
@@ -639,19 +658,50 @@ type treeTable struct {
 
 func (tt *treeTable) serialize() (uint16, []byte) {
 	// 127 nodes per treeBlock, 1024 treeBlocks in a treeTable, 32 byte hashes
-	buf := make([]byte, 127*1024*32)
-	//fmt.Println(tt.memTreeBlocks)
+	//buf := make([]byte, 0, 127*1024*32)
+	var buf []byte
 	var treeBlockCount uint16
 	for _, tb := range tt.memTreeBlocks {
 		if tb == nil {
-			//fmt.Println("TREEBLOCK IS NIL")
 			break
 		}
-		treeBlockCount++
 
 		buf = append(buf, tb.serialize()...)
+
+		treeBlockCount++
 	}
 	return treeBlockCount, buf
+}
+
+// given a fileNum on disk, deserialize that table
+// FIXME This and cow.load()
+func deserializeTreeTable(fName string, treeBlockCount uint16) (*treeTable, error) {
+	f, err := os.OpenFile(fName, os.O_CREATE|os.O_RDWR, 0666)
+	if err != nil {
+		return nil, err
+	}
+	bufR := bufio.NewReaderSize(f, 127*1024*32)
+
+	// FIXME ugly, just for testing
+	skip := make([]byte, 2)
+	bufR.Read(skip)
+
+	tt := new(treeTable)
+	tbBytes := make([]byte, 127*32)
+	var totallen int
+	for i := uint16(0); i < treeBlockCount; i++ {
+		_, err := bufR.Read(tbBytes)
+		if err != nil {
+			return nil, err
+		}
+		tt.memTreeBlocks[i] = deserializeTreeBlock(tbBytes)
+		totallen += len(tbBytes)
+
+	}
+	fmt.Printf("deserialize for file:%s, treeBlockCount: %d", fName, treeBlockCount)
+	fmt.Printf("len for sTable: %d\n", totallen)
+
+	return tt, nil
 }
 
 func newTreeTable() *treeTable {
@@ -795,7 +845,7 @@ func (cow *cowForest) read(pos uint64) Hash {
 	//fmt.Println("FETCH", treeBlockOffset%treeBlockPerTable)
 	tb := table.memTreeBlocks[treeBlockOffset%treeBlockPerTable]
 	if tb == nil {
-		//fmt.Println("TREEBLOCK IS NIL")
+		fmt.Println("TREEBLOCK IS NIL")
 
 		tb = new(treeBlock)
 	}
@@ -882,6 +932,7 @@ func (cow *cowForest) write(pos uint64, h Hash) {
 
 	// there there is no treeBlock, then attach one
 	if table.memTreeBlocks[treeBlockOffset%treeBlockPerTable] == nil {
+		fmt.Println("TREETABLE IS NIL")
 		table.memTreeBlocks[treeBlockOffset%treeBlockPerTable] = new(treeBlock)
 	}
 
@@ -1225,9 +1276,10 @@ func (cow *cowForest) updateTableNum(
 func (cow *cowForest) load(fileNum uint64) error {
 	//fmt.Println("LOAD IS CALLED")
 	stringLoc := strconv.FormatUint(fileNum, 10) // base 10 used
-	filePath := filepath.Join(cow.meta.fBasePath, stringLoc+extension)
+	fName := filepath.Join(cow.meta.fBasePath, stringLoc+extension)
 
-	f, err := os.Open(filePath)
+	fmt.Println("FILE LOADED: ", fName)
+	f, err := os.Open(fName)
 	if err != nil {
 		// If the error returned is of no files existing, then the manifest
 		// is corrupt
@@ -1242,42 +1294,50 @@ func (cow *cowForest) load(fileNum uint64) error {
 	}
 	// treeBlockPerTable treeBlocks in table, 127 leaves + 32 byte meta in a treeBlock
 	// 32 bytes per leaf
+	// TODO just pass in this buf to deserializeTreeTable
 	buf := bufio.NewReaderSize(f, treeBlockPerTable*127*32)
 
 	//var leaves [127]Hash
-	var leaves [4064]byte
+	//var leaves [4064]byte
 	//var leaves []byte
 	//var meta [32]byte
-	newTable := new(treeTable)
 
-	uint16Buf := make([]byte, 2)
+	lenBytes := make([]byte, 2)
 	// FIXME read the length first
-	treeBlockCount, err := buf.Read(uint16Buf)
+	_, err = buf.Read(lenBytes)
+	if err != nil {
+		return err
+	}
+	treeBlockCount := binary.LittleEndian.Uint16(lenBytes)
+	fmt.Printf("LOAD for file:%d, treeBlockCount: %d\n", fileNum, treeBlockCount)
+
+	tt, err := deserializeTreeTable(fName, treeBlockCount)
 	if err != nil {
 		return err
 	}
 
 	// treeBlockPerTable treeBlocks in a treeTable
 	// FIXME Some treeTables may have less than 1024 treeBlocks
-	for i := 0; i < treeBlockCount; i++ {
-		tb := new(treeBlock)
-		//buf.Read(meta[:])
-		buf.Read(leaves[:])
+	/*
+		for i := 0; i < treeBlockCount; i++ {
+			tb := new(treeBlock)
+			//buf.Read(meta[:])
+			buf.Read(leaves[:])
 
-		for j := 0; j < 127; j++ {
-			//fmt.Println(tb.leaves[j])
-			//fmt.Println(len(tb.leaves[j]))
-			offset := j * 32
-			copy(tb.leaves[j][:], leaves[offset:offset+31])
+			for j := 0; j < 127; j++ {
+				//fmt.Println(tb.leaves[j])
+				//fmt.Println(len(tb.leaves[j]))
+				offset := j * 32
+				copy(tb.leaves[j][:], leaves[offset:offset+31])
+			}
+
+			newTable.memTreeBlocks[i] = tb
+
 		}
-
-		newTable.memTreeBlocks[i] = tb
-
-	}
+	*/
 	// set map
-	cow.cachedTreeTables[fileNum] = newTable
+	cow.cachedTreeTables[fileNum] = tt
 
-	fmt.Println(cow.cachedTreeTables)
 	return nil
 }
 
@@ -1291,6 +1351,28 @@ func (cow *cowForest) commit() error {
 	}
 
 	for fileNum, treeTable := range cow.cachedTreeTables {
+		treeBlockCount, serializedTable := treeTable.serialize()
+
+		lenBytes := make([]byte, 2)
+		binary.LittleEndian.PutUint16(lenBytes[:], treeBlockCount)
+
+		fmt.Printf("COMMIT for file:%d, treeBlockCount: %d\n",
+			fileNum, treeBlockCount)
+		fmt.Printf("Size of serializedTable: %d\n", len(serializedTable))
+
+		// write to that file. First buffer it
+		var bytesToWrite bytes.Buffer
+
+		_, err = bytesToWrite.Write(lenBytes)
+		if err != nil {
+			return err
+		}
+		_, err = bytesToWrite.Write(serializedTable)
+		if err != nil {
+			return err
+		}
+
+		// actual writing to file
 		// calculate the file name
 		stringLoc := strconv.FormatUint(fileNum, 10) // base 10 used
 		fPath := filepath.Join(cow.meta.fBasePath, stringLoc)
@@ -1300,18 +1382,7 @@ func (cow *cowForest) commit() error {
 		if err != nil {
 			return err
 		}
-
-		length, serializedTable := treeTable.serialize()
-
-		lenBytes := make([]byte, 2)
-		binary.LittleEndian.PutUint16(lenBytes[:], length)
-
-		// write to that file
-		_, err = f.Write(lenBytes)
-		if err != nil {
-			return err
-		}
-		_, err = f.Write(serializedTable)
+		_, err = f.Write(bytesToWrite.Bytes())
 		if err != nil {
 			return err
 		}

@@ -637,9 +637,9 @@ func RestoreForest(
 	fmt.Printf("%d leaves for position map\n", f.numLeaves)
 	for i := uint64(0); i < f.numLeaves; i++ {
 		f.positionMap[f.data.read(i).Mini()] = i
-		if i%100000 == 0 && i != 0 {
-			fmt.Printf("Added %d leaves %x\n", i, f.data.read(i).Mini())
-		}
+		//if i%100000 == 0 && i != 0 {
+		fmt.Printf("Added %d leaves %x\n", i, f.data.read(i).Mini())
+		//}
 	}
 	if f.positionMap == nil {
 		return nil, fmt.Errorf("Generated positionMap is nil")
@@ -678,6 +678,12 @@ func (f *Forest) WriteMiscData(miscForestFile *os.File) error {
 	if err != nil {
 		return err
 	}
+	for i := uint64(0); i < f.numLeaves; i++ {
+		//f.positionMap[f.data.read(i).Mini()] = i
+		//if i%100000 == 0 && i != 0 {
+		fmt.Printf("Added %d leaves %x\n", i, f.data.read(i).Mini())
+		//}
+	}
 
 	f.data.close()
 
@@ -705,10 +711,10 @@ func (f *Forest) WriteForestToDisk(dumpFile *os.File, ram, cow bool) error {
 	}
 
 	if cow {
-		fmt.Println("F.DATA.CLOSE ON COW")
-		fmt.Println("TYPE:")
-		fmt.Printf("%T\n", f.data)
-		f.data.close()
+		//fmt.Println("F.DATA.CLOSE ON COW")
+		//fmt.Println("TYPE:")
+		//fmt.Printf("%T\n", f.data)
+		//f.data.close()
 	}
 
 	return nil
