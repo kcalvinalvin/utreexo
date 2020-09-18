@@ -831,8 +831,6 @@ func (cow *cowForest) read(pos uint64) Hash {
 
 	tb := table.memTreeBlocks[treeBlockOffset%treeBlockPerTable]
 	if tb == nil {
-		fmt.Println("TREEBLOCK IS NIL")
-
 		tb = new(treeBlock)
 	}
 
@@ -852,7 +850,9 @@ func (cow *cowForest) read(pos uint64) Hash {
 // write changes the in-memory representation of the relevant treeBlock
 // NOTE The treeBlocks on disk are not changed. commit must be called for that
 func (cow *cowForest) write(pos uint64, h Hash) {
-	fmt.Printf("WRITE CALLED on pos: %d with hash: %x\n", pos, h)
+	if verbose {
+		fmt.Printf("WRITE CALLED on pos: %d with hash: %x\n", pos, h)
+	}
 
 	if pos > getRowOffset(cow.manifest.forestRows, cow.manifest.forestRows) {
 		s := fmt.Errorf("pos of %d is greater than the max of what forestRows"+
@@ -939,115 +939,6 @@ func (cow *cowForest) swapHash(a, b uint64) {
 }
 
 func (cow *cowForest) swapHashRange(a, b, w uint64) {
-	//fmt.Println("SWAPHASHRANGE CALLED")
-	/*
-		var aBefore []Hash
-
-		for i := a; i <= a+w; i++ {
-			aBefore = append(aBefore, cow.read(i))
-		}
-
-		var bBefore []Hash
-		for i := b; i <= b+w; i++ {
-			bBefore = append(bBefore, cow.read(i))
-		}
-		fmt.Println("aBefore")
-		fmt.Println(aBefore)
-		fmt.Println("bBefore")
-		fmt.Println(bBefore)
-
-		// load the tables to memory
-		rowA, offsetsA, posSameOffsetsA := cow.findAndLoadRange(a, w)
-		rowB, offsetsB, posSameOffsetsB := cow.findAndLoadRange(b, w)
-
-		// fetch the hashes
-		aHashes := make([]Hash, 0, w+1) // +1 as to include a
-		bHashes := make([]Hash, 0, w+1) // +1 as to include b
-		for i, offsetA := range offsetsA {
-			var table *treeTable
-			for _, pos := range posSameOffsetsA[i] {
-				loc := cow.manifest.location[rowA][offsetA/treeBlockPerTable]
-				table, _ = cow.cachedTreeTables[loc]
-				treeBlock := table.memTreeBlocks[offsetA%treeBlockPerTable]
-				_, localPos := gPosToLocPos(pos, offsetA, rowA, cow.manifest.forestRows)
-				aHashes = append(aHashes, treeBlock.leaves[localPos])
-			}
-		}
-
-		for i, offsetB := range offsetsB {
-			var table *treeTable
-			for _, pos := range posSameOffsetsB[i] {
-				loc := cow.manifest.location[rowB][offsetB/treeBlockPerTable]
-				table, _ = cow.cachedTreeTables[loc]
-				treeBlock := table.memTreeBlocks[offsetB%treeBlockPerTable]
-				_, localPos := gPosToLocPos(pos, offsetB, rowB, cow.manifest.forestRows)
-				bHashes = append(bHashes, treeBlock.leaves[localPos])
-			}
-		}
-
-		// Apply the hashes
-		var bCount int // for iterating through bHashes. Ugly TODO
-		for i, offsetA := range offsetsA {
-			var table *treeTable
-			loc := cow.manifest.location[rowA][offsetA/treeBlockPerTable]
-			table, _ = cow.cachedTreeTables[loc]
-
-			// Write hashes
-			for _, pos := range posSameOffsetsA[i] {
-				_, localPos := gPosToLocPos(pos, offsetA, rowA, cow.manifest.forestRows)
-				table.memTreeBlocks[offsetA%treeBlockPerTable].leaves[localPos] = bHashes[bCount]
-				bCount++
-			}
-			//cow.updateTableNum(loc, offsetA, rowA)
-		}
-
-		var aCount int // for iterating through bHashes. Ugly TODO
-		for i, offsetB := range offsetsB {
-			var table *treeTable
-			loc := cow.manifest.location[rowB][offsetB/treeBlockPerTable]
-			table, _ = cow.cachedTreeTables[loc]
-
-			// Write hashes
-			for _, pos := range posSameOffsetsB[i] {
-				_, localPos := gPosToLocPos(pos, offsetB, rowB, cow.manifest.forestRows)
-				table.memTreeBlocks[offsetB%treeBlockPerTable].leaves[localPos] = aHashes[aCount]
-				aCount++
-			}
-			//cow.updateTableNum(loc, offsetB, rowB)
-		}
-
-		// SANITY CHECKING DOWN HERE
-
-		var counter int
-		// Check all hashes
-		var aAfter []Hash
-		for i := a; i <= a+w; i++ {
-			//if bBefore[counter] != cow.read(i) {
-			//	panic("swaphashes written swaps don't match")
-			//}
-			aAfter = append(aAfter, cow.read(i))
-			counter++
-		}
-
-		counter = 0
-		var bAfter []Hash
-		for i := b; i <= b+w; i++ {
-			//if aBefore[counter] != cow.read(i) {
-			//	panic("swaphashes written swaps don't match")
-			//}
-			bAfter = append(bAfter, cow.read(i))
-			counter++
-		}
-		fmt.Println("COMPARE SWAPHASH")
-		fmt.Println(a, w)
-		fmt.Println(b, w)
-		fmt.Println(aBefore)
-		fmt.Println(aAfter)
-
-		fmt.Println()
-		fmt.Println(bBefore)
-		fmt.Println(bAfter)
-	*/
 	aHashes := make([]Hash, 0, w+1) // +1 as to include a
 	bHashes := make([]Hash, 0, w+1) // +1 as to include b
 	for i := a; i < a+w; i++ {
@@ -1068,32 +959,15 @@ func (cow *cowForest) swapHashRange(a, b, w uint64) {
 		cow.write(i, aHashes[counter])
 		counter++
 	}
-
-	//fmt.Println("SWAPHASHRANGE RETURN")
 }
 
 func (cow *cowForest) size() uint64 {
-	// grab the count of the treeTables for treeBlockRow0
-	// Since each represents treeBlockPerTable amount of leaves, multiply
-	// by that.
-
-	// if location hasn't been initialized, return 0
-	/*
-		if len(cow.manifest.location) == 0 {
-			return 0
-		}
-	*/
-
-	// if it has been, return the length of treeBlockRow 0
 	return uint64(2 << cow.manifest.forestRows)
 }
 
 // FIXME newSize is the size of the entire forest. I have it as the leafcount
 func (cow *cowForest) resize(newSize uint64) {
-	//fmt.Println("RESIZE CALLED")
-
 	tbRows := cow.manifest.forestRows / rowPerTreeBlock
-	//fmt.Println("treeBlockRows", treeBlockRows)
 
 	if len(cow.manifest.location) <= int(tbRows) {
 		cow.manifest.location = append(cow.manifest.location, []uint64{})
@@ -1102,7 +976,6 @@ func (cow *cowForest) resize(newSize uint64) {
 
 	// append new treeTables as needed
 	for row := uint8(0); row <= tbRows; row++ {
-		//fmt.Println("len: ", len(cow.manifest.location[row]))
 		currentCap := len(cow.manifest.location[row]) * leavesPerTreeTable
 		// only add new tables if the current row can't hold what's needed
 		for newSize > uint64(currentCap) {
@@ -1111,29 +984,17 @@ func (cow *cowForest) resize(newSize uint64) {
 		}
 
 		// size for the next row
-		// FIXME this does'nt work
-		//newSize = newSize / uint64(2*treeBlockRows)
 		newSize >>= 6
 	}
-
-	// update forestRows
-	// TODO sorta ugly here because you could just pass in the forestRows
-	// but you'd need to change the interface for that
-	//cow.manifest.forestRows = treeRows(newSize)
-	//cow.manifest.forestRows += 3
-
-	//fmt.Println(cow.manifest.location)
-	//fmt.Println(cow.cachedTreeTables)
-	//fmt.Println("RESIZE RETURN")
 }
 
+// needed as cowForest position translations depend
+// on the correct forestRows
 func (cow *cowForest) setRow(row uint8) {
-	//fmt.Println("SETROW TO:", row)
 	cow.manifest.forestRows = row
 }
 
 func (cow *cowForest) close() {
-	fmt.Println("COWFOREST CLOSE")
 	// commit the current forest
 	err := cow.commit()
 	if err != nil {
@@ -1148,7 +1009,7 @@ func (cow *cowForest) findAndLoad(pos uint64) (uint8, uint64) {
 	treeBlockRow, treeBlockOffset, err := getTreeBlockPos(
 		pos, cow.manifest.forestRows)
 	if err != nil {
-		//return Hash{}, err
+		// TODO better to return err
 		panic(err)
 	}
 
@@ -1163,10 +1024,9 @@ func (cow *cowForest) findAndLoad(pos uint64) (uint8, uint64) {
 		// Load the treeTable onto memory. This maps the table to the location
 		err = cow.load(location)
 		if err != nil {
-			//return Hash{}, err
+			// TODO better to return err
 			panic(err)
 		}
-		//table = cow.cachedTreeTables[location]
 	}
 	return treeBlockRow, treeBlockOffset
 }
@@ -1186,10 +1046,9 @@ func (cow *cowForest) findAndLoadRange(pos, width uint64) (
 			// Load the treeTable onto memory. This maps the table to the location
 			err := cow.load(location)
 			if err != nil {
-				//return Hash{}, err
+				// TODO better to return err
 				panic(err)
 			}
-			//table = cow.cachedTreeTables[location]
 		}
 
 	}
@@ -1213,8 +1072,6 @@ func (cow *cowForest) newTable(treeBlockRow uint8) {
 // Update the cowForest num given table location. Returns the new location
 func (cow *cowForest) updateTableNum(
 	location, treeBlockOffset uint64, treeBlockRow uint8) uint64 {
-	//fmt.Println("UPDATETABLE NUM CALLED")
-
 	// grab the table
 	table := cow.cachedTreeTables[location]
 	if table == nil {
@@ -1254,10 +1111,9 @@ func (cow *cowForest) load(fileNum uint64) error {
 		// If the error returned is of no files existing, then the manifest
 		// is corrupt
 		if os.IsNotExist(err) {
-			// Not sure if we can recover from this? I think panic
+			// TODO Not sure if we can recover from this? I think panic
 			// is the right call
 			panic(errorCorruptManifest())
-			//return errorCorruptManifest()
 
 		}
 		return err
@@ -1274,7 +1130,9 @@ func (cow *cowForest) load(fileNum uint64) error {
 		return err
 	}
 	treeBlockCount := binary.LittleEndian.Uint16(lenBytes)
-	fmt.Printf("LOAD for file:%d, treeBlockCount: %d\n", fileNum, treeBlockCount)
+	if verbose {
+		fmt.Printf("LOAD for file:%d, treeBlockCount: %d\n", fileNum, treeBlockCount)
+	}
 
 	tt, err := deserializeTreeTable(fName, treeBlockCount)
 	if err != nil {
@@ -1302,9 +1160,11 @@ func (cow *cowForest) commit() error {
 		lenBytes := make([]byte, 2)
 		binary.LittleEndian.PutUint16(lenBytes[:], treeBlockCount)
 
-		fmt.Printf("COMMIT for file:%d, treeBlockCount: %d\n",
-			fileNum, treeBlockCount)
-		fmt.Printf("Size of serializedTable: %d\n", len(serializedTable))
+		if verbose {
+			fmt.Printf("COMMIT for file:%d, treeBlockCount: %d\n",
+				fileNum, treeBlockCount)
+			fmt.Printf("Size of serializedTable: %d\n", len(serializedTable))
+		}
 
 		// write to that file. First buffer it
 		var bytesToWrite bytes.Buffer
@@ -1334,7 +1194,10 @@ func (cow *cowForest) commit() error {
 		}
 	}
 	// clean up all old stale files
-	cow.clean()
+	err = cow.clean()
+	if err != nil {
+		panic(err)
+	}
 
 	return nil
 }
@@ -1343,7 +1206,7 @@ func (cow *cowForest) commit() error {
 func (cow *cowForest) clean() error {
 	for _, fileNum := range cow.meta.staleFiles {
 		stringLoc := strconv.FormatUint(fileNum, 10) // base 10 used
-		filePath := filepath.Join(cow.meta.fBasePath, stringLoc)
+		filePath := filepath.Join(cow.meta.fBasePath, stringLoc+extension)
 		err := os.Remove(filePath)
 		if err != nil {
 			return err
