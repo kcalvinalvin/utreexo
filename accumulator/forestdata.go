@@ -1205,6 +1205,9 @@ func (cow *cowForest) commit() error {
 // Clean removes all the stale treeTables from the disk
 func (cow *cowForest) clean() error {
 	for _, fileNum := range cow.meta.staleFiles {
+		if verbose {
+			fmt.Printf("CLEANING UP file %d\n", fileNum)
+		}
 		stringLoc := strconv.FormatUint(fileNum, 10) // base 10 used
 		filePath := filepath.Join(cow.meta.fBasePath, stringLoc+extension)
 		err := os.Remove(filePath)
