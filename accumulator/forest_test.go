@@ -117,7 +117,8 @@ func TestCowForestAddDelComp(t *testing.T) {
 	}
 }
 
-// ToString prints out the whole thing.  Only viable for small forests
+// checkIfEqual checks if the forest differ returns true for equal and if not, returns
+// the positions and the hashes
 func checkIfEqual(cowF, memF *Forest) (bool, []uint64, []Hash) {
 	cowFH := cowF.rows
 	memFH := memF.rows

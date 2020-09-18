@@ -183,6 +183,6 @@ func TestGetTreeBlockPosRange(t *testing.T) {
 }
 
 func TestGetTreeTablePos(t *testing.T) {
-	row, offset := getTreeTablePos(65536, 17)
+	row, offset := getTreeTablePos(255963, 19)
 	fmt.Printf("row is: %d, offest is: %d\n", row, offset)
 }
