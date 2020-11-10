@@ -31,12 +31,11 @@ jobs:
         cd $GOPATH/src/github.com/${{ github.repository }}
         go get -v -d ./...
 
-    - name: Build one before
+    - name: Install one before
       shell: bash
       run: |
         cd $GOPATH/src/github.com/${{ github.repository }}/cmd/utreexoserver
-        go build -v -o oldutreexoserver
-        ls
+        go install
 
     - name: checkout
       uses: actions/checkout@v2
@@ -71,4 +70,4 @@ jobs:
         cd $GOPATH/src/github.com/${{ github.repository }}
         ls ./cmd/utreexoserver
         ./test/install_bitcoind.sh
-        ./test/csn_bridge.sh "./cmd/utreexoserver/utreexoserver" "./cmd/utreexoclient/utreexoclient" "./cmd/utreexoserver/oldutreexoserver"
+        ./test/csn_bridge.sh "./cmd/utreexoserver/utreexoserver" "./cmd/utreexoclient/utreexoclient" "$GOPATH/bin/utreexoserver"
