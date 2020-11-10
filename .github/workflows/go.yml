@@ -66,5 +66,6 @@ jobs:
       shell: bash
       run: |
         cd $GOPATH/src/github.com/${{ github.repository }}
+        ls
         ./test/install_bitcoind.sh
         ./test/csn_bridge.sh "./cmd/utreexoserver/utreexoserver" "./cmd/utreexoclient/utreexoclient" "./cmd/utreexoserver/oldutreexoserver"
