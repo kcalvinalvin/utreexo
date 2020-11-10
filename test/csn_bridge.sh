@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Integration test script for the csn and bridge node.
-# Assumes that `the following binaries exist:
+# Integration test script for the csn and bridge node.  Assumes that `the following binaries exist:
 # 	`bitcoind`, `bitcoin-cli`
 #
 # Receives the path to the server and client command.
@@ -10,6 +9,7 @@ set -Eeuo pipefail
 
 GENPROOFS="$1"
 IBDSIM="$2"
+PREV_GENPROOFS="$3"
 TEST_DATA=$(mktemp -d)
 BITCOIN_DATA=$TEST_DATA/.bitcoin
 BITCOIN_CONF=$BITCOIN_DATA/bitcoin.conf
@@ -175,7 +175,19 @@ compare_proofs() {
 	eval "$GENPROOFS -datadir=$BITCOIN_DATA/ -net=regtest -bridgedir=$STOP_DIR -quitat=150 -noserve> /dev/null"
 	eval "$GENPROOFS -datadir=$BITCOIN_DATA/ -net=regtest -bridgedir=$STOP_DIR -quitat=200 -noserve> /dev/null"
 
+	# compare with one that starts and stops
 	if cmp -s $NOSTOP_DIR/regtest/proofdata/proof.dat $STOP_DIR/regtest/proofdata/proof.dat; then
+		log "proofs match up"
+	else
+		log "Proof mismatch"
+		false
+	fi
+
+	PREVCOM_DIR=$(mktemp -d)
+	eval "$PREV_GENPROOFS -datadir=$BITCOIN_DATA/ -net=regtest -bridgedir=$PREVCOM_DIR -quitat=200 -noserve > /dev/null"
+
+	# compare with one commit before
+	if cmp -s $NOSTOP_DIR/regtest/proofdata/proof.dat $PREVCOM_DIR/regtest/proofdata/proof.dat; then
 		log "proofs match up"
 	else
 		log "Proof mismatch"
