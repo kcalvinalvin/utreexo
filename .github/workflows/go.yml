@@ -20,24 +20,24 @@ jobs:
         go-version: 1.13
       id: go
 
-    - name: Build one commit before
-      uses: actions/checkout@v2
-      shell: bash
-      run: |
-      with:
-        fetch-depth: 2
-        path: go/src/github.com/${{ github.repository }}
+      #- name: Build one commit before
+      #  uses: actions/checkout@v2
+      #  shell: bash
+      #  run: |
+      #  with:
+      #    fetch-depth: 2
+      #    path: go/src/github.com/${{ github.repository }}
 
-    - name: Get one before dependencies
-      run: |
-        cd $GOPATH/src/github.com/${{ github.repository }}
-        go get -v -d ./...
+      #- name: Get one before dependencies
+      #  run: |
+      #    cd $GOPATH/src/github.com/${{ github.repository }}
+      #    go get -v -d ./...
 
-    - name: Build one before
-      shell: bash
-      run: |
-        cd $GOPATH/src/github.com/${{ github.repository }}/cmd/utreexoserver
-        go build -v -o oldutreexoserver
+      #- name: Build one before
+      #  shell: bash
+      #  run: |
+      #    cd $GOPATH/src/github.com/${{ github.repository }}/cmd/utreexoserver
+      #    go build -v -o oldutreexoserver
 
     - name: checkout
       uses: actions/checkout@v2
