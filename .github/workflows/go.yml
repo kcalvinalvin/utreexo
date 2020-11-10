@@ -36,6 +36,7 @@ jobs:
       run: |
         cd $GOPATH/src/github.com/${{ github.repository }}/cmd/utreexoserver
         go build -v -o oldutreexoserver
+        ls
 
     - name: checkout
       uses: actions/checkout@v2
@@ -51,8 +52,10 @@ jobs:
     - name: Build
       shell: bash
       run: |
+        ls
         cd $GOPATH/src/github.com/${{ github.repository }}/cmd/utreexoserver
         go build -v
+        ls
         cd $GOPATH/src/github.com/${{ github.repository }}/cmd/utreexoclient
         go build -v
 
