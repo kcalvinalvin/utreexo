@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mit-dci/utreexo/btcacc"
 	"github.com/mit-dci/utreexo/util"
 
 	"github.com/syndtr/goleveldb/leveldb"
@@ -44,7 +45,6 @@ it grabs all that before trying to look for TTL data.
 
 // build the bridge node / proofs
 func BuildProofs(cfg *Config, sig chan bool) error {
-
 	// Channel to alert the tell the main loop it's ok to exit
 	haltRequest := make(chan bool, 1)
 
@@ -60,10 +60,10 @@ func BuildProofs(cfg *Config, sig chan bool) error {
 
 	// Init forest and variables. Resumes if the data directory exists
 	forest, height, knownTipHeight, err :=
-		initBridgeNodeState(cfg, offsetFinished)
+		InitBridgeNodeState(cfg, offsetFinished)
 	if err != nil {
 		err := fmt.Errorf("initialization error.  If your .blk and .dat files are "+
-			"not in %s, specify alternate path with -datadir\n.", cfg.blockDir)
+			"not in %s, specify alternate path with -datadir\n.", cfg.BlockDir)
 		return err
 	}
 
@@ -72,10 +72,10 @@ func BuildProofs(cfg *Config, sig chan bool) error {
 		CompactionTableSizeMultiplier: 8,
 		Compression:                   opt.NoCompression,
 	}
-	lvdb, err := leveldb.OpenFile(cfg.utreeDir.ttldb, &o)
+	lvdb, err := leveldb.OpenFile(cfg.UtreeDir.Ttldb, &o)
 	if err != nil {
 		err := fmt.Errorf("initialization error.  If your .blk and .dat files are "+
-			"not in %s, specify alternate path with -datadir\n.", cfg.blockDir)
+			"not in %s, specify alternate path with -datadir\n.", cfg.BlockDir)
 		return err
 	}
 	defer lvdb.Close()
@@ -87,7 +87,7 @@ func BuildProofs(cfg *Config, sig chan bool) error {
 
 	dbWriteChan := make(chan ttlRawBlock, 10)      // from block processing to db worker
 	ttlResultChan := make(chan ttlResultBlock, 10) // from db worker to flat ttl writer
-	proofChan := make(chan util.UData, 10)         // from proof processing to proof writer
+	proofChan := make(chan btcacc.UData, 10)       // from proof processing to proof writer
 	// Start 16 workers. Just an arbitrary number
 	//	for j := 0; j < 16; j++ {
 	// I think we can only have one dbworker now, since it needs to all happen in order?
@@ -100,7 +100,7 @@ func BuildProofs(cfg *Config, sig chan bool) error {
 
 	var fileWait sync.WaitGroup
 
-	go flatFileWorker(proofChan, ttlResultChan, cfg.utreeDir, &fileWait)
+	go flatFileWorker(proofChan, ttlResultChan, cfg.UtreeDir, &fileWait)
 
 	fmt.Println("Building Proofs and ttldb...")
 
@@ -140,7 +140,7 @@ func BuildProofs(cfg *Config, sig chan bool) error {
 
 		// use the accumulator to get inclusion proofs, and produce a block
 		// proof with all data needed to verify the block
-		ud, err := genUData(delLeaves, forest, bnr.Height)
+		ud, err := btcacc.GenUData(delLeaves, forest, bnr.Height)
 		if err != nil {
 			return err
 		}
@@ -226,7 +226,7 @@ func stopBuildProofs(
 	default:
 		fmt.Println("offsetfile incomplete, removing...")
 		// May not work sometimes.
-		err := os.RemoveAll(cfg.utreeDir.offsetDir.base)
+		err := os.RemoveAll(cfg.UtreeDir.OffsetDir.base)
 		if err != nil {
 			fmt.Println("ERR. offsetdata/ directory not removed. Please manually remove it.")
 		}

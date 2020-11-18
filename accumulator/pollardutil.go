@@ -1,34 +1,11 @@
 package accumulator
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
 )
-
-// Pollard is the sparse representation of the utreexo forest, using
-// binary tree pointers instead of a hash map.
-
-// I generally avoid recursion as much as I can, using regular for loops and
-// ranges instead.  That might start looking pretty contrived here, but
-// I'm still going to try it.
-
-// Pollard :
-type Pollard struct {
-	numLeaves uint64 // number of leaves in the pollard forest
-
-	roots []*polNode // slice of the tree roots, which are polNodes.
-	// roots are in big to small order
-	// BUT THEY'RE WEIRD!  The left / right children are actual children,
-	// not nieces as they are in every lower level.
-
-	hashesEver, rememberEver, overWire uint64
-
-	Lookahead int32 // remember leafs below this TTL
-	//	Minleaves uint64 // remember everything below this leaf count
-
-	positionMap map[MiniHash]uint64
-}
 
 // PolNode is a node in the pollard forest
 type polNode struct {
@@ -103,7 +80,6 @@ func polSwap(a, asib, b, bsib *polNode) error {
 	asib.niece, bsib.niece = bsib.niece, asib.niece
 	return nil
 }
-
 func (p *Pollard) rows() uint8 { return treeRows(p.numLeaves) }
 
 // rootHashesReverse is ugly and returns the root hashes in reverse order
@@ -138,12 +114,10 @@ func (p *Pollard) WritePollard(w io.Writer) error {
 			return err
 		}
 	}
-	fmt.Println("Pollard leaves:", p.numLeaves)
 	return nil
 }
 
 func (p *Pollard) RestorePollard(r io.Reader) error {
-	fmt.Println("Restoring Pollard Roots...")
 	err := binary.Read(r, binary.BigEndian, &p.numLeaves)
 	if err != nil {
 		return err
@@ -160,6 +134,53 @@ func (p *Pollard) RestorePollard(r io.Reader) error {
 			return err
 		}
 	}
-	fmt.Println("Finished restoring pollard")
+	return nil
+}
+
+func (p *Pollard) Serialize() ([]byte, error) {
+	size := 8 + len(p.roots) // 8 for uint64 numLeaves
+	serialized := make([]byte, 0, size)
+
+	buf := bytes.NewBuffer(serialized)
+
+	err := binary.Write(buf, binary.BigEndian, p.numLeaves)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, t := range p.roots {
+		_, err = buf.Write(t.data[:])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return buf.Bytes(), nil
+}
+
+func (p *Pollard) Deserialize(serialized []byte) error {
+	reader := bytes.NewReader(serialized)
+
+	err := binary.Read(reader, binary.BigEndian, &p.numLeaves)
+	if err != nil {
+		panic(err)
+		//return err
+	}
+	fmt.Println(p.numLeaves)
+
+	p.roots = make([]*polNode, numRoots(p.numLeaves))
+
+	for i, _ := range p.roots {
+		p.roots[i] = new(polNode)
+		bytesRead, err := reader.Read(p.roots[i].data[:])
+
+		// ignore EOF error at the end of successful reading
+		if err != nil && !(bytesRead == 32 && err == io.EOF) {
+			fmt.Printf("on hash %d read %d ", i, bytesRead)
+			panic(err)
+			//return err
+		}
+	}
+
 	return nil
 }
