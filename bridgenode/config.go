@@ -2,6 +2,7 @@ package bridgenode
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -40,8 +41,8 @@ var (
 		`Set a custom bridgenode datadir. Usage: "-bridgedir='path/to/directory"`)
 	forestTypeCmd = argCmd.String("forest", "disk",
 		`Set a forest type to use (cow, ram, disk, cache). Usage: "-forest=cow"`)
-	cowMaxCache = argCmd.Int("cowmaxcache", 500,
-		`how many treetables to cache with copy-on-write forest`)
+	cowMaxCache = argCmd.Int("cowmaxcache", 4500,
+		`how much cached in MB to use for forest cache`)
 	quitAtCmd = argCmd.Int("quitat", -1,
 		`quit generating proofs after the given block height. (meant for testing)`)
 	serve = argCmd.Bool("serve", false,
@@ -54,6 +55,8 @@ var (
 		`Enable pprof cpu profiling. Usage: 'cpuprof='path/to/file'`)
 	memProfCmd = argCmd.String("memprof", "",
 		`Enable pprof heap profiling. Usage: 'memprof='path/to/file'`)
+	profServerCmd = argCmd.String("profserver", "",
+		`Enable pprof server. Usage: 'profserver='port'`)
 )
 
 // utreexo home directory
@@ -187,6 +190,9 @@ type Config struct {
 
 	// enable memory profiling
 	MemProf string
+
+	// enable profiling http server
+	ProfServer string
 }
 
 // Parse parses the command line arguments and inits the server Config
@@ -242,6 +248,7 @@ func Parse(args []string) (*Config, error) {
 	cfg.CpuProf = *cpuProfCmd
 	cfg.MemProf = *memProfCmd
 	cfg.TraceProf = *traceCmd
+	cfg.ProfServer = *profServerCmd
 
 	switch *forestTypeCmd {
 	case "disk":
@@ -250,6 +257,11 @@ func Parse(args []string) (*Config, error) {
 		cfg.forestType = cacheForest
 	case "cow":
 		cfg.forestType = cowForest
+		if *cowMaxCache > 5000 {
+			err := fmt.Errorf("The entire forest is around 4000MB, and you set the cowForest at %vMB.\n"+
+				"Please use ramForest as it's more performant with this much cache", *cowMaxCache)
+			return nil, err
+		}
 		cfg.cowMaxCache = *cowMaxCache
 	case "ram":
 		cfg.forestType = ramForest

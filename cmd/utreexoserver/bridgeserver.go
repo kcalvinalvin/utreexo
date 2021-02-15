@@ -2,8 +2,12 @@ package main
 
 import (
 	"fmt"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime"
+
+	"runtime/debug"
 	"runtime/pprof"
 	"runtime/trace"
 	"syscall"
@@ -12,6 +16,8 @@ import (
 )
 
 func main() {
+	debug.SetGCPercent(20)
+
 	// parse the config
 	cfg, err := bridge.Parse(os.Args[1:])
 	if err != nil {
@@ -42,6 +48,16 @@ func handleIntSig(sig chan bool, cfg *bridge.Config) {
 
 		if cfg.TraceProf != "" {
 			trace.Stop()
+		}
+
+		if cfg.MemProf != "" {
+			f, err := os.Create(cfg.MemProf)
+			if err != nil {
+				fmt.Println(err)
+			}
+			runtime.GC()
+			pprof.WriteHeapProfile(f)
+
 		}
 		sig <- true
 	}()
