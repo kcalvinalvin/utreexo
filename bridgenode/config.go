@@ -43,6 +43,8 @@ var (
 		`Set a forest type to use (cow, ram, disk, cache). Usage: "-forest=cow"`)
 	cowMaxCache = argCmd.Int("cowmaxcache", 4500,
 		`how much cached in MB to use for forest cache`)
+	memTTLdb = argCmd.Bool("memttldb", false,
+		`keep the ttldb in memory. Uses up a lot of memory.`)
 	quitAtCmd = argCmd.Int("quitat", -1,
 		`quit generating proofs after the given block height. (meant for testing)`)
 	serve = argCmd.Bool("serve", false,
@@ -176,6 +178,9 @@ type Config struct {
 	// how much cache to allow for cowforest
 	cowMaxCache int
 
+	// keep the ttldb in memory
+	memTTLdb bool
+
 	// just immidiately start serving what you have on disk
 	serve bool
 
@@ -249,6 +254,7 @@ func Parse(args []string) (*Config, error) {
 	cfg.MemProf = *memProfCmd
 	cfg.TraceProf = *traceCmd
 	cfg.ProfServer = *profServerCmd
+	cfg.memTTLdb = *memTTLdb
 
 	switch *forestTypeCmd {
 	case "disk":
