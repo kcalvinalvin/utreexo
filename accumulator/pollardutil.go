@@ -169,7 +169,6 @@ func (p *Pollard) Deserialize(serialized []byte) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(p.numLeaves)
 
 	p.roots = make([]*polNode, numRoots(p.numLeaves))
 

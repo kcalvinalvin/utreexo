@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/mit-dci/utreexo/accumulator"
+	"github.com/mit-dci/utreexo/common"
 )
 
 type UData struct {
@@ -105,6 +106,104 @@ func (ud *UData) Serialize(w io.Writer) (err error) {
 	return
 }
 
+func (ud *UData) Encode(w io.Writer) (err error) {
+	err = common.WriteVarInt(w, 0, uint64(ud.Height))
+	if err != nil { // ^ 4B block height
+		return
+	}
+	err = common.WriteVarInt(w, 0, uint64(len(ud.TxoTTLs)))
+	if err != nil { // ^ 4B num ttls
+		return
+	}
+	for _, ttlval := range ud.TxoTTLs { // write all ttls
+		err = common.WriteVarInt(w, 0, uint64(ttlval))
+		if err != nil {
+			return
+		}
+	}
+
+	err = ud.AccProof.Encode(w)
+	if err != nil { // ^ batch proof with lengths internal
+		return
+	}
+
+	// write all the leafdatas
+	for _, ld := range ud.Stxos {
+		err = ld.Encode(w)
+		if err != nil {
+			return
+		}
+	}
+
+	return
+}
+
+func (ud *UData) Decode(r io.Reader) (err error) {
+	height, err := common.ReadVarInt(r, 0)
+	if err != nil { // ^ 4B block height
+		fmt.Printf("ud deser Height err %s\n", err.Error())
+		return
+	}
+	ud.Height = int32(height)
+
+	numTTLs, err := common.ReadVarInt(r, 0)
+	if err != nil { // ^ 4B num ttls
+		fmt.Printf("ud deser numTTLs err %s\n", err.Error())
+		return
+	}
+
+	ud.TxoTTLs = make([]int32, numTTLs)
+	for i, _ := range ud.TxoTTLs { // write all ttls
+		ttl, err := common.ReadVarInt(r, 0)
+		if err != nil {
+			fmt.Printf("ud deser LeafTTLs[%d] err %s\n", i, err.Error())
+			return err
+		}
+
+		ud.TxoTTLs[i] = int32(ttl)
+	}
+
+	err = ud.AccProof.Decode(r)
+	if err != nil { // ^ batch proof with lengths internal
+		fmt.Printf("ud deser AccProof err %s\n", err.Error())
+		return
+	}
+
+	// fmt.Printf("%d byte accproof, read %d targets\n",
+	// ud.AccProof.SerializeSize(), len(ud.AccProof.Targets))
+	// we've already gotten targets.  1 leafdata per target
+	ud.Stxos = make([]LeafData, len(ud.AccProof.Targets))
+	for i, _ := range ud.Stxos {
+		err = ud.Stxos[i].Decode(r)
+		if err != nil {
+			err = fmt.Errorf(
+				"ud deser h %d nttl %d targets %d UtxoData[%d] err %s\n",
+				ud.Height, numTTLs, len(ud.AccProof.Targets), i, err.Error())
+			return
+		}
+	}
+
+	return
+}
+
+func (ud *UData) SerializeSizeVarInt() int {
+	var ldsize int
+	for _, l := range ud.Stxos {
+		ldsize += l.SerializeSizeVarInt()
+	}
+
+	var txoTTLSize int
+	for _, ttl := range ud.TxoTTLs {
+		txoTTLSize += common.VarIntSerializeSize(uint64(ttl))
+	}
+
+	guess := common.VarIntSerializeSize(uint64(ud.Height)) +
+		txoTTLSize + ud.AccProof.SerializeSizeVarInt() + ldsize
+
+	// 8B height & numTTLs, 4B per TTL, accProof size, leaf sizes
+	return guess
+}
+
 //
 func (ud *UData) SerializeSize() int {
 	var ldsize int
@@ -135,7 +234,6 @@ func (ud *UData) SerializeSize() int {
 }
 
 func (ud *UData) Deserialize(r io.Reader) (err error) {
-
 	err = binary.Read(r, binary.BigEndian, &ud.Height)
 	if err != nil { // ^ 4B block height
 		fmt.Printf("ud deser Height err %s\n", err.Error())
