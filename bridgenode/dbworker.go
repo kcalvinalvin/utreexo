@@ -146,7 +146,7 @@ type MemTTLdb struct {
 func NewMemTTLdb() *MemTTLdb {
 	return &MemTTLdb{
 		cache:    make(map[[36]byte]*cachedTTLIdx),
-		flushMax: 4000000000, // 4GB
+		flushMax: 7000000000, // 7GB
 	}
 }
 

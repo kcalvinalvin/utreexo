@@ -50,6 +50,8 @@ var (
 		`quit generating proofs after the given block height. (meant for testing)`)
 	serve = argCmd.Bool("serve", false,
 		`immediately start server without building or checking proof data`)
+	makeRoots = argCmd.Bool("makeroots", false,
+		`create a uteexo root hint set`)
 	noServeCmd = argCmd.Bool("noserve", false,
 		`don't serve proofs after finishing generating them`)
 	traceCmd = argCmd.String("trace", "",
@@ -176,6 +178,9 @@ type Config struct {
 	// quitAfter syncing to this block height
 	quitAt int
 
+	// make utreexo rootHints
+	makeRoots bool
+
 	// how much cache to allow for cowforest
 	cowMaxCache int
 
@@ -260,6 +265,7 @@ func Parse(args []string) (*Config, error) {
 	cfg.ProfServer = *profServerCmd
 	cfg.memTTLdb = *memTTLdb
 	cfg.allInMemTTLdb = *allInMemTTLdb
+	cfg.makeRoots = *makeRoots
 
 	switch *forestTypeCmd {
 	case "disk":

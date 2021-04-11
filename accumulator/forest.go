@@ -725,6 +725,10 @@ func (f *Forest) WriteForestToDisk(dumpFile *os.File, ram, cow bool) error {
 	return nil
 }
 
+func (f *Forest) GetRootData() ([]Hash, uint64) {
+	return f.getRoots(), f.numLeaves
+}
+
 // getRoots returns all the roots of the trees
 func (f *Forest) getRoots() []Hash {
 	positionList := NewPositionList()

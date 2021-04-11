@@ -1,6 +1,7 @@
 package bridgenode
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"runtime/pprof"
@@ -113,6 +114,13 @@ func BuildProofs(cfg *Config, sig chan bool) error {
 
 	fmt.Println("Building Proofs and ttldb...")
 
+	rootFile, err := os.OpenFile("roots", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		panic(err)
+	}
+
+	bufRootFile := bufio.NewWriter(rootFile)
+
 	var stop bool // bool for stopping the main loop
 
 	for ; height != knownTipHeight && !stop; height++ {
@@ -163,6 +171,55 @@ func BuildProofs(cfg *Config, sig chan bool) error {
 			return err
 		}
 
+		//{1000, newHashFromStr("00000000373403049c5fff2cd653590e8cbe6f7ac639db270e7d1a7503d698df"),
+		//  1197, []*chainhash.Hash{
+		//          newLeafHashFromStr("1ad2add104463d2fd90e3182ed1b16abf7a959a7fe0ba8184242fa2d36382e74"),
+		//          newLeafHashFromStr("9f3fb3a8ea114ed622f6f32a7d014713fd13e7ce8a64d6f6dd7ff87c54a81c24"),
+		//          newLeafHashFromStr("812ad7d6cba2277bdbbadf9fe0fb1163397777f778fe12ccf0b40e5094f00c8c"),
+		//          newLeafHashFromStr("a19adb17472d4152ebc769a4d1461c4072c42a8cf1b52664c8fb136080c852da"),
+		//          newLeafHashFromStr("9bb7afc7a82002b321fa45c69205d0a1b153ff99ce69b69e32bd87015a868fa5"),
+		//          newLeafHashFromStr("cb814eae4594e059848ecd91013502e624f746552d730ff53570ab3cf0c31f66"),
+		//  },
+		//},
+
+		// for a go file
+		if cfg.makeRoots && bnr.Height%1000 == 0 {
+			var str string
+			roots, numLeaves := forest.GetRootData()
+			str += fmt.Sprintf("\t{%d, newHashFromStr(\"%s\"),\n", bnr.Height, bnr.Blk.Hash().String())
+			str += fmt.Sprintf("\t\t%d, []*chainhash.Hash{\n", numLeaves)
+			for _, root := range roots {
+				str += fmt.Sprintf("\t\t\tnewLeafHashFromStr(\"%x\"),\n", root)
+			}
+			str += fmt.Sprintf("\t\t},\n")
+			str += fmt.Sprintf("\t},\n")
+			_, err := bufRootFile.WriteString(str)
+			if err != nil {
+				panic(err)
+			}
+		}
+
+		//if cfg.makeRoots { //&& bnr.Height%1000 == 0 {
+		//	var str string
+		//	roots, numLeaves := forest.GetRootData()
+		//	str += fmt.Sprintf("  \"roothint\": {\n")
+		//	str += fmt.Sprintf("    \"height\": \"%v\",\n", bnr.Height)
+		//	str += fmt.Sprintf("    \"blockhash\":\"%s\",\n", bnr.Blk.Hash().String())
+		//	str += fmt.Sprintf("    \"numleaves\":\"%v\",\n", numLeaves)
+
+		//	str += fmt.Sprintf("    \"roots\":[,\n")
+		//	for _, root := range roots {
+		//		str += fmt.Sprintf("        \"%x\",\n", root)
+		//	}
+		//	str += fmt.Sprintf("    ],\n")
+		//	str += fmt.Sprintf("  },\n")
+		//	//_, err := rootFile.WriteString(str)
+		//	_, err := bufRootFile.WriteString(str)
+		//	if err != nil {
+		//		panic(err)
+		//	}
+		//}
+
 		if bnr.Height%100 == 0 {
 			fmt.Println("On block :", bnr.Height+1)
 		}
@@ -175,6 +232,8 @@ func BuildProofs(cfg *Config, sig chan bool) error {
 		}
 
 	}
+
+	bufRootFile.Flush()
 
 	// wait until dbWorker() has written to the ttldb file
 	// allows leveldb to close gracefully

@@ -190,40 +190,40 @@ func (ff *flatFileState) writeProofBlock(ud btcacc.UData) error {
 	ff.offsets = append(ff.offsets, ff.currentOffset)
 
 	binary.BigEndian.PutUint64(buf, uint64(ff.currentOffset))
-	_, err := ff.offsetFile.WriteAt(buf, int64(8*ud.Height))
-	if err != nil {
-		return err
-	}
+	//_, err := ff.offsetFile.WriteAt(buf, int64(8*ud.Height))
+	//if err != nil {
+	//	return err
+	//}
 
-	// write to proof file
-	_, err = ff.proofFile.WriteAt([]byte{0xaa, 0xff, 0xaa, 0xff}, ff.currentOffset)
-	if err != nil {
-		return err
-	}
+	//// write to proof file
+	//_, err = ff.proofFile.WriteAt([]byte{0xaa, 0xff, 0xaa, 0xff}, ff.currentOffset)
+	//if err != nil {
+	//	return err
+	//}
 
 	// prefix with size
 	buf = buf[:4]
 	binary.BigEndian.PutUint32(buf, uint32(udSize))
-	// +4 to account for the 4 magic bytes
-	_, err = ff.proofFile.WriteAt(buf, ff.currentOffset+4)
-	if err != nil {
-		return err
-	}
+	//// +4 to account for the 4 magic bytes
+	//_, err = ff.proofFile.WriteAt(buf, ff.currentOffset+4)
+	//if err != nil {
+	//	return err
+	//}
 
 	// Serialize proof
 	buf = buf[:0]
 	bytesBuf := bytes.NewBuffer(buf)
-	err = ud.Serialize(bytesBuf)
+	err := ud.Serialize(bytesBuf)
 	if err != nil {
 		return err
 	}
 
-	// Write to the file
-	// +4 +4 to account for the 4 magic bytes and the 4 size bytes
-	_, err = ff.proofFile.WriteAt(bytesBuf.Bytes(), ff.currentOffset+4+4)
-	if err != nil {
-		return err
-	}
+	//// Write to the file
+	//// +4 +4 to account for the 4 magic bytes and the 4 size bytes
+	//_, err = ff.proofFile.WriteAt(bytesBuf.Bytes(), ff.currentOffset+4+4)
+	//if err != nil {
+	//	return err
+	//}
 
 	// 4B magic & 4B size comes first
 	ff.currentOffset += int64(ud.SerializeSize()) + 8
@@ -235,24 +235,24 @@ func (ff *flatFileState) writeProofBlock(ud btcacc.UData) error {
 }
 
 func (ff *flatFileState) writeTTLs(ttlRes ttlResultBlock) error {
-	var ttlArr [4]byte
-	// for all the TTLs, seek and overwrite the empty values there
-	for _, c := range ttlRes.Created {
-		// seek to the location of that txo's ttl value in the proof file
+	//var ttlArr [4]byte
+	//// for all the TTLs, seek and overwrite the empty values there
+	//for _, c := range ttlRes.Created {
+	//	// seek to the location of that txo's ttl value in the proof file
 
-		binary.BigEndian.PutUint32(
-			ttlArr[:], uint32(ttlRes.Height-c.createHeight))
+	//	binary.BigEndian.PutUint32(
+	//		ttlArr[:], uint32(ttlRes.Height-c.createHeight))
 
-		// write it's lifespan as a 4 byte int32 (bit of a waste as
-		// 2 or 3 bytes would work)
-		// add 16: 4 for magic, 4 for size, 4 for height, 4 numTTL, then ttls start
-		_, err := ff.proofFile.WriteAt(ttlArr[:],
-			ff.offsets[c.createHeight]+16+int64(c.indexWithinBlock*4))
-		if err != nil {
-			return err
-		}
+	//	// write it's lifespan as a 4 byte int32 (bit of a waste as
+	//	// 2 or 3 bytes would work)
+	//	// add 16: 4 for magic, 4 for size, 4 for height, 4 numTTL, then ttls start
+	//	_, err := ff.proofFile.WriteAt(ttlArr[:],
+	//		ff.offsets[c.createHeight]+16+int64(c.indexWithinBlock*4))
+	//	if err != nil {
+	//		return err
+	//	}
 
-	}
+	//}
 	ff.fileWait.Done()
 	return nil
 }
