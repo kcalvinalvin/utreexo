@@ -55,16 +55,19 @@ func (p *Pollard) ingestAndCheck(bp BatchProof, targs []Hash) error {
 	for i := 0; i < len(bp.Targets); i++ {
 		targpos := bp.Targets[i]
 
-		n, nsib, _, err := p.grabPos(targpos)
+		n, nsib, _, err := p.readPos(targpos)
 		if err != nil {
 			return err
 		}
+
+		// Check if either are nil.
 		if n == nil {
 			n = &polNode{}
 		}
 		if nsib == nil {
 			nsib = &polNode{}
 		}
+
 		err = matchPop(n, targs[i])
 		if err != nil {
 			return err
