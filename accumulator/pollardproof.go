@@ -59,9 +59,19 @@ func (p *Pollard) ingestAndCheck(bp BatchProof, targs []Hash) error {
 		if err != nil {
 			return err
 		}
+		if n == nil {
+			n = &polNode{}
+		}
+		if nsib == nil {
+			nsib = &polNode{}
+		}
 		err = matchPop(n, targs[i])
 		if err != nil {
 			return err
+		}
+		// If the node we're looking at matches the proof, then advance
+		if n.data == bp.Proof[pp] {
+			pp++
 		}
 
 		// see if current target is a twin target
@@ -80,6 +90,13 @@ func (p *Pollard) ingestAndCheck(bp BatchProof, targs []Hash) error {
 				return err
 			}
 			pp++
+
+			// If the proof we're looking at is equal to the target
+			// then we advance the proof pointer
+			if targs[i] == bp.Proof[pp] {
+				pp++
+			}
+
 		}
 	}
 

@@ -347,7 +347,7 @@ func (p *Pollard) swapNodes(s arrow, row uint8) (*hashableNode, error) {
 func (p *Pollard) blazeLeaves(positions []uint64) (pslice [][]*polNode, err error) {
 
 	// Determine the tree that the position is at
-	tree, branchLen, bits := detectOffset(pos, p.numLeaves)
+	tree, branchLen, bits := detectOffset(positions[0], p.numLeaves)
 	if tree >= uint8(len(p.roots)) {
 		err = ErrorStrings[ErrorNotEnoughTrees]
 		return
@@ -357,7 +357,7 @@ func (p *Pollard) blazeLeaves(positions []uint64) (pslice [][]*polNode, err erro
 		return
 	}
 	// allocate branches
-	nbranch, sibbranch = make([]*polNode, branchLen), make([]*polNode, branchLen)
+	nbranch, sibbranch := make([]*polNode, branchLen), make([]*polNode, branchLen)
 	// start with the tree's root
 	n, nsib := p.roots[tree], p.roots[tree]
 
