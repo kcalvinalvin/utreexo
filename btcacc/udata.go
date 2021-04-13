@@ -17,6 +17,15 @@ type UData struct {
 	TxoTTLs  []int32
 }
 
+// returns all the target leafhashes
+func (ud *UData) TargetLeafHashes() []accumulator.Hash {
+	leafHashes := make([]accumulator.Hash, len(ud.Stxos))
+	for i, _ := range ud.Stxos {
+		leafHashes[i] = ud.Stxos[i].LeafHash()
+	}
+	return leafHashes
+}
+
 // Verify checks the consistency of uData: that the utxos are proven in the
 // batchproof
 func (ud *UData) ProofSanity(nl uint64, h uint8) bool {
@@ -141,14 +150,14 @@ func (ud *UData) Encode(w io.Writer) (err error) {
 func (ud *UData) Decode(r io.Reader) (err error) {
 	height, err := common.ReadVarInt(r, 0)
 	if err != nil { // ^ 4B block height
-		fmt.Printf("ud deser Height err %s\n", err.Error())
+		fmt.Printf("ud decode Height err %s\n", err.Error())
 		return
 	}
 	ud.Height = int32(height)
 
 	numTTLs, err := common.ReadVarInt(r, 0)
 	if err != nil { // ^ 4B num ttls
-		fmt.Printf("ud deser numTTLs err %s\n", err.Error())
+		fmt.Printf("ud decode numTTLs err %s\n", err.Error())
 		return
 	}
 
@@ -156,7 +165,7 @@ func (ud *UData) Decode(r io.Reader) (err error) {
 	for i, _ := range ud.TxoTTLs { // write all ttls
 		ttl, err := common.ReadVarInt(r, 0)
 		if err != nil {
-			fmt.Printf("ud deser LeafTTLs[%d] err %s\n", i, err.Error())
+			fmt.Printf("ud decode LeafTTLs[%d] err %s\n", i, err.Error())
 			return err
 		}
 
@@ -165,7 +174,7 @@ func (ud *UData) Decode(r io.Reader) (err error) {
 
 	err = ud.AccProof.Decode(r)
 	if err != nil { // ^ batch proof with lengths internal
-		fmt.Printf("ud deser AccProof err %s\n", err.Error())
+		fmt.Printf("ud decode AccProof err %s\n", err.Error())
 		return
 	}
 
@@ -177,7 +186,7 @@ func (ud *UData) Decode(r io.Reader) (err error) {
 		err = ud.Stxos[i].Decode(r)
 		if err != nil {
 			err = fmt.Errorf(
-				"ud deser h %d nttl %d targets %d UtxoData[%d] err %s\n",
+				"ud decode h %d nttl %d targets %d UtxoData[%d] err %s\n",
 				ud.Height, numTTLs, len(ud.AccProof.Targets), i, err.Error())
 			return
 		}

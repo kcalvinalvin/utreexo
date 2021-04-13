@@ -96,7 +96,7 @@ func (bp *BatchProof) Decode(r io.Reader) (err error) {
 		return
 	}
 
-	if numTargets > 1<<16 {
+	if numTargets > 1<<31 {
 		err = fmt.Errorf("%d targets - too many\n", numTargets)
 		return
 	}
@@ -107,7 +107,7 @@ func (bp *BatchProof) Decode(r io.Reader) (err error) {
 		fmt.Printf("bp deser err %s\n", err.Error())
 		return
 	}
-	if numHashes > 1<<16 {
+	if numHashes > 1<<31 {
 		err = fmt.Errorf("%d hashes - too many\n", numHashes)
 		return
 	}
@@ -197,7 +197,7 @@ func (bp *BatchProof) Deserialize(r io.Reader) (err error) {
 		return
 	}
 
-	if numTargets > 1<<16 {
+	if numTargets > 1<<31 {
 		err = fmt.Errorf("%d targets - too many\n", numTargets)
 		return
 	}
@@ -208,7 +208,7 @@ func (bp *BatchProof) Deserialize(r io.Reader) (err error) {
 		fmt.Printf("bp deser err %s\n", err.Error())
 		return
 	}
-	if numHashes > 1<<16 {
+	if numHashes > 1<<31 {
 		err = fmt.Errorf("%d hashes - too many\n", numHashes)
 		return
 	}
@@ -338,8 +338,7 @@ func verifyBatchProof(bp BatchProof, roots []Hash, numLeaves uint64,
 	positionList := NewPositionList()
 	defer positionList.Free()
 
-	computablePositions :=
-		ProofPositions(targets, numLeaves, rows, &positionList.list)
+	computablePositions := ProofPositions(targets, numLeaves, rows, &positionList.list)
 
 	// The proof should have as many hashes as there are proof positions.
 	if len(positionList.list)+len(bp.Targets) != len(bp.Proof) {
