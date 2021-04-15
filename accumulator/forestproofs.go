@@ -180,7 +180,10 @@ func (f *Forest) ProveBatch(hs []Hash) (BatchProof, error) {
 	positionList := NewPositionList()
 	defer positionList.Free()
 
-	ProofPositions(sortedTargets, f.numLeaves, f.rows, &positionList.list)
+	computablePositions := NewPositionList()
+	defer computablePositions.Free()
+
+	ProofPositions(sortedTargets, f.numLeaves, f.rows, &positionList.list, &computablePositions.list)
 	targetsAndProof := mergeSortedSlices(positionList.list, sortedTargets)
 
 	bp.Proof = make([]Hash, len(targetsAndProof))

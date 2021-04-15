@@ -245,6 +245,8 @@ func TestCache(t *testing.T) {
 			t.Fatal("Modify failed", err)
 		}
 
+		fmt.Println(p.ToString())
+
 		// remove deleted leaves from the leaf map
 		for _, del := range delHashes {
 			delete(leaves, del)

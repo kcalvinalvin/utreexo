@@ -39,7 +39,7 @@ func NewPositionList() *PositionList {
 
 // ProofPositions returns the positions that are needed to prove that the targets exist.
 func ProofPositions(
-	targets []uint64, numLeaves uint64, forestRows uint8, proofPositions *[]uint64) int64 {
+	targets []uint64, numLeaves uint64, forestRows uint8, proofPositions, computedPositions *[]uint64) {
 	// the proofPositions needed without caching.
 	// the positions that are computed/not included in the proof.
 	// (also includes the targets)
@@ -47,9 +47,8 @@ func ProofPositions(
 	nextTargets := NewPositionList()
 	defer nextTargets.Free()
 
-	var computedPositions int64
 	for row := uint8(0); row < forestRows; row++ {
-		computedPositions += int64(len(targets))
+		*computedPositions = append(*computedPositions, targets...)
 		if numLeaves&(1<<row) > 0 && len(targets) > 0 &&
 			targets[len(targets)-1] == rootPosition(numLeaves, row, forestRows) {
 			// remove roots from targets
@@ -123,8 +122,6 @@ func ProofPositions(
 
 		targets = nextTargets.list
 	}
-
-	return computedPositions
 }
 
 // takes a slice of dels, removes the twins (in place) and returns a slice

@@ -338,7 +338,10 @@ func verifyBatchProof(bp BatchProof, roots []Hash, numLeaves uint64,
 	positionList := NewPositionList()
 	defer positionList.Free()
 
-	computablePositions := ProofPositions(targets, numLeaves, rows, &positionList.list)
+	computablePositions := NewPositionList()
+	defer computablePositions.Free()
+
+	ProofPositions(targets, numLeaves, rows, &positionList.list, &computablePositions.list)
 
 	// The proof should have as many hashes as there are proof positions.
 	if len(positionList.list)+len(bp.Targets) != len(bp.Proof) {
@@ -356,7 +359,7 @@ func verifyBatchProof(bp BatchProof, roots []Hash, numLeaves uint64,
 	// is the right child.
 	// trees holds the entire proof tree of the batchproof in this way,
 	// sorted by the tuple[0].
-	trees := make([][3]node, 0, computablePositions)
+	trees := make([][3]node, 0, len(computablePositions.list))
 	// initialise the targetNodes for row 0.
 	// TODO: this would be more straight forward if bp.Proofs wouldn't
 	// contain the targets
@@ -504,7 +507,10 @@ func (bp *BatchProof) Reconstruct(
 	positionList := NewPositionList()
 	defer positionList.Free()
 
-	ProofPositions(targets, numleaves, forestRows, &positionList.list)
+	computablePositions := NewPositionList()
+	defer computablePositions.Free()
+
+	ProofPositions(targets, numleaves, forestRows, &positionList.list, &computablePositions.list)
 	positionList.list = mergeSortedSlices(targets, positionList.list)
 
 	if len(positionList.list) != len(bp.Proof) {

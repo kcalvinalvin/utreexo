@@ -87,7 +87,11 @@ func (p *Pollard) ProveBatch(hs []Hash) (BatchProof, error) {
 
 	positionList := NewPositionList()
 	defer positionList.Free()
-	ProofPositions(bp.Targets, p.numLeaves, p.rows(), &positionList.list)
+
+	computablePositions := NewPositionList()
+	defer computablePositions.Free()
+
+	ProofPositions(bp.Targets, p.numLeaves, p.rows(), &positionList.list, &computablePositions.list)
 	targetsAndProof := mergeSortedSlices(positionList.list, bp.Targets)
 	bp.Proof = make([]Hash, len(targetsAndProof))
 	for i, proofPos := range targetsAndProof {

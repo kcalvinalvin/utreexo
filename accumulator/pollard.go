@@ -442,7 +442,78 @@ func (p *Pollard) grabPos(
 	hn.dest = nsib // this is kind of confusing eh?
 	hn.sib = n     // but yeah, switch siblingness
 	n, nsib = n.niece[lrSib], n.niece[lr]
+
 	return // only happens when returning a root
+}
+
+// blazeLeaves "blazes" a trail to all leaves, creating empty nodes and
+// siblings along the way if needed.
+// Returns a 2d slice of polNodes sorted by: treePosition, branchLen
+// The first slice designates what root all these nodes are under.
+// Second slice designates how far down the root the node is. Root nodes will always be 0
+// and each children from that on is incremented by 1.
+func (p *Pollard) blazeLeaves(leafPositions []uint64) ([][][]*polNode, error) {
+	// make sure the positions are sorted
+	sortUint64s(leafPositions)
+
+	positionList := NewPositionList()
+	defer positionList.Free()
+
+	computablePositions := NewPositionList()
+	defer computablePositions.Free()
+
+	ProofPositions(leafPositions, p.numLeaves, p.rows(), &positionList.list, &computablePositions.list)
+
+	fmt.Println(positionList.list)
+	fmt.Println(computablePositions.list)
+
+	// positionList pointer. Keeps track of which positionList we're at.
+	// goes in reverse since we're looping through the computablePositions in reverse
+	// as well
+	pp := len(positionList.list) - 1
+	// prevBranchLen keeps track of how far we're down a tree. Since utreexo is made of
+	// many trees, we need a slice to keep track of all of the progress
+	prevBranchLen := make([]uint8, len(p.roots))
+	for i := len(computablePositions.list) - 1; i >= 0; i-- {
+		tree, branchLen, _ := detectOffset(computablePositions.list[i], p.numLeaves)
+		fmt.Println(tree, branchLen, computablePositions.list[i])
+
+		// if we're already through with all the proofPositions, don't bother
+		// checking
+		if pp >= 0 {
+			fmt.Println(computablePositions.list[i], positionList.list[pp])
+			// check if they're sibilings
+			if computablePositions.list[i]^1 == positionList.list[pp] ||
+				positionList.list[pp]^1 == computablePositions.list[i] {
+				pp--
+			}
+		}
+
+		// if branchLen is 0, then it means we're at a different tree root.
+		// reset the prevBranchLen to 0.
+		if branchLen == 0 {
+			prevBranchLen[tree] = 0
+		} else {
+			// computablePositions should only move down to the leaves. If
+			// we somehow moved up, then panic
+			// NOTE this should never happen
+			// TODO this could be abused and a node could be shut down with this.
+			// Actually handle the error
+			if branchLen < prevBranchLen[tree] {
+				str := fmt.Errorf("branchLen %d smaller than prevBranchLen %d\n", branchLen, prevBranchLen)
+				panic(str)
+			}
+			prevBranchLen[tree] = branchLen
+		}
+	}
+
+	if pp != -1 {
+		err := fmt.Errorf("Did not get to all the proofPositions. "+
+			"%v proofPositions did not get checked", pp)
+		panic(err)
+	}
+
+	return nil, nil
 }
 
 // toFull takes a pollard and converts to a forest.
