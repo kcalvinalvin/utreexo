@@ -96,7 +96,7 @@ func (bp *BatchProof) Decode(r io.Reader) (err error) {
 		return
 	}
 
-	if numTargets > 1<<31 {
+	if numTargets > 1<<16 {
 		err = fmt.Errorf("%d targets - too many\n", numTargets)
 		return
 	}
@@ -107,7 +107,7 @@ func (bp *BatchProof) Decode(r io.Reader) (err error) {
 		fmt.Printf("bp deser err %s\n", err.Error())
 		return
 	}
-	if numHashes > 1<<31 {
+	if numHashes > 1<<16 {
 		err = fmt.Errorf("%d hashes - too many\n", numHashes)
 		return
 	}
@@ -197,7 +197,7 @@ func (bp *BatchProof) Deserialize(r io.Reader) (err error) {
 		return
 	}
 
-	if numTargets > 1<<31 {
+	if numTargets > 1<<16 {
 		err = fmt.Errorf("%d targets - too many\n", numTargets)
 		return
 	}
@@ -208,7 +208,7 @@ func (bp *BatchProof) Deserialize(r io.Reader) (err error) {
 		fmt.Printf("bp deser err %s\n", err.Error())
 		return
 	}
-	if numHashes > 1<<31 {
+	if numHashes > 1<<16 {
 		err = fmt.Errorf("%d hashes - too many\n", numHashes)
 		return
 	}
