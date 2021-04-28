@@ -96,7 +96,7 @@ func (bp *BatchProof) Decode(r io.Reader) (err error) {
 		return
 	}
 
-	if numTargets > 1<<16 {
+	if numTargets > 1<<31 {
 		err = fmt.Errorf("%d targets - too many\n", numTargets)
 		return
 	}
@@ -107,7 +107,7 @@ func (bp *BatchProof) Decode(r io.Reader) (err error) {
 		fmt.Printf("bp deser err %s\n", err.Error())
 		return
 	}
-	if numHashes > 1<<16 {
+	if numHashes > 1<<31 {
 		err = fmt.Errorf("%d hashes - too many\n", numHashes)
 		return
 	}
@@ -197,7 +197,7 @@ func (bp *BatchProof) Deserialize(r io.Reader) (err error) {
 		return
 	}
 
-	if numTargets > 1<<16 {
+	if numTargets > 1<<31 {
 		err = fmt.Errorf("%d targets - too many\n", numTargets)
 		return
 	}
@@ -208,7 +208,7 @@ func (bp *BatchProof) Deserialize(r io.Reader) (err error) {
 		fmt.Printf("bp deser err %s\n", err.Error())
 		return
 	}
-	if numHashes > 1<<16 {
+	if numHashes > 1<<31 {
 		err = fmt.Errorf("%d hashes - too many\n", numHashes)
 		return
 	}
@@ -249,7 +249,7 @@ func DeserializeBPFromBytes(serialized []byte) (*BatchProof, error) {
 		return nil, err
 	}
 
-	if numTargets > 1<<16 {
+	if numTargets > 1<<31 {
 		err = fmt.Errorf("%d targets - too many\n", numTargets)
 		return nil, err
 	}
@@ -261,7 +261,7 @@ func DeserializeBPFromBytes(serialized []byte) (*BatchProof, error) {
 		return nil, str
 	}
 
-	if numHashes > 1<<16 {
+	if numHashes > 1<<31 {
 		err = fmt.Errorf("%d hashes - too many\n", numHashes)
 		return nil, err
 	}
