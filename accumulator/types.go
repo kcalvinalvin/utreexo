@@ -1,11 +1,11 @@
 package accumulator
 
 import (
-	"crypto/sha256"
 	"crypto/sha512"
 	"fmt"
 	"math/rand"
 
+	"github.com/minio/sha256-simd"
 	"github.com/mit-dci/utreexo/common"
 )
 
@@ -66,7 +66,7 @@ func parentHash(l, r Hash) Hash {
 	defer buf.Free()
 	buf.Bytes = append(buf.Bytes, l[:]...)
 	buf.Bytes = append(buf.Bytes, r[:]...)
-	return sha512.Sum512_256(buf.Bytes)
+	return sha512.Sum512_256(append(l[:], r[:]...))
 }
 
 // SimChain is for testing; it spits out "blocks" of adds and deletes

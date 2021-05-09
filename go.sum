@@ -31,6 +31,10 @@ github.com/jrick/logrotate v1.0.0/go.mod h1:LNinyqDIJnpAur+b8yyulnQw/wDuN1+BYKlT
 github.com/kcalvinalvin/btcd v0.20.1-beta.0.20210202084407-63bae2d12e01 h1:hEqegh2K4FVya38YIgRxdJq2MlKX4ZdTCFhoOFTuD9k=
 github.com/kcalvinalvin/btcd v0.20.1-beta.0.20210202084407-63bae2d12e01/go.mod h1:Sv4JPQ3/M+teHz9Bo5jBpkNcP0x6r7rdihlNL/7tTAs=
 github.com/kkdai/bstream v0.0.0-20161212061736-f391b8402d23/go.mod h1:J+Gs4SYgM6CZQHDETBtE9HaSEkGmuNXF86RwHhHUvq4=
+github.com/klauspost/cpuid/v2 v2.0.4 h1:g0I61F2K2DjRHz1cnxlkNSBIaePVoJIjjnHui8QHbiw=
+github.com/klauspost/cpuid/v2 v2.0.4/go.mod h1:FInQzS24/EEf25PyTYn52gqo7WaD8xa0213Md/qVLRg=
+github.com/minio/sha256-simd v1.0.0 h1:v1ta+49hkWZyvaKwrQB8elexRqm6Y0aMLjCNsrYxo6g=
+github.com/minio/sha256-simd v1.0.0/go.mod h1:OuYzVNI5vcoYIAmbIvHPl3N3jUzVedXbKy5RFepssQM=
 github.com/mit-dci/utcd v0.21.0-beta.0.20210201215500-359f1ee1429a h1:RzhKLugFs87PMOHxrQUcvkqyuqerpd7bWaUKdxwKMLI=
 github.com/mit-dci/utcd v0.21.0-beta.0.20210201215500-359f1ee1429a/go.mod h1:t4zbDmIvP+nfkgR383HSMks64wA8cloaI7o3THoptXY=
 github.com/mit-dci/utcutil v1.0.3-0.20210201144513-fb3ce8742498 h1:luTD6pTVYv5BMGuf+GkOCedIYZo9jMaA5USZULZCCvM=
