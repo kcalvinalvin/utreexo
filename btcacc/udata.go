@@ -216,24 +216,18 @@ func (ud *UData) SerializeSizeVarInt() int {
 //
 func (ud *UData) SerializeSize() int {
 	var ldsize int
-	var b bytes.Buffer
+	buf := common.NewFreeBytes()
+	bufWriter := bytes.NewBuffer(buf.Bytes)
 
 	// TODO this is slow, can remove double checking once it works reliably
 	for _, l := range ud.Stxos {
 		ldsize += l.SerializeSize()
-		b.Reset()
-		l.Serialize(&b)
-		if b.Len() != l.SerializeSize() {
-			fmt.Printf(" b.Len() %d, l.SerializeSize() %d\n",
-				b.Len(), l.SerializeSize())
-		}
 	}
-
-	b.Reset()
-	ud.AccProof.Serialize(&b)
-	if b.Len() != ud.AccProof.SerializeSize() {
+	bufWriter.Reset()
+	ud.AccProof.Serialize(bufWriter)
+	if bufWriter.Len() != ud.AccProof.SerializeSize() {
 		fmt.Printf(" b.Len() %d, AccProof.SerializeSize() %d\n",
-			b.Len(), ud.AccProof.SerializeSize())
+			bufWriter.Len(), ud.AccProof.SerializeSize())
 	}
 
 	guess := 8 + (4 * len(ud.TxoTTLs)) + ud.AccProof.SerializeSize() + ldsize

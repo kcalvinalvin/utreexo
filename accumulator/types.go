@@ -5,6 +5,8 @@ import (
 	"crypto/sha512"
 	"fmt"
 	"math/rand"
+
+	"github.com/mit-dci/utreexo/common"
 )
 
 // Hash :
@@ -60,7 +62,11 @@ func parentHash(l, r Hash) Hash {
 	if l == empty || r == empty {
 		panic("got an empty leaf here. ")
 	}
-	return sha512.Sum512_256(append(l[:], r[:]...))
+	buf := common.NewFreeBytes()
+	defer buf.Free()
+	buf.Bytes = append(buf.Bytes, l[:]...)
+	buf.Bytes = append(buf.Bytes, r[:]...)
+	return sha512.Sum512_256(buf.Bytes)
 }
 
 // SimChain is for testing; it spits out "blocks" of adds and deletes
