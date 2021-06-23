@@ -30,7 +30,7 @@ func TestForestAddDel(t *testing.T) {
 
 	f := NewForest(nil, false, "", 0)
 
-	sc := NewSimChain(0x07)
+	sc := newSimChain(0x07)
 
 	for b := 0; b < 1000; b++ {
 
@@ -56,7 +56,7 @@ func TestCowForestAddDelComp(t *testing.T) {
 	cowF := NewForest(nil, false, tmpDir, 2500)
 	memF := NewForest(nil, false, "", 0)
 
-	sc := NewSimChain(0x07)
+	sc := newSimChain(0x07)
 	sc.lookahead = 400
 
 	for b := 0; b <= 1000; b++ {
@@ -175,7 +175,7 @@ func TestCowForestAddDel(t *testing.T) {
 	tmpDir := os.TempDir()
 	cowF := NewForest(nil, false, tmpDir, 500)
 
-	sc := NewSimChain(0x07)
+	sc := newSimChain(0x07)
 	sc.lookahead = 400
 
 	for b := 0; b < 1000; b++ {
@@ -325,13 +325,15 @@ func addDelFullBatchProof(nAdds, nDels int) error {
 		addHashes[i] = h.Hash
 	}
 
+	leavesToProve := addHashes[:nDels]
+
 	// get block proof
-	bp, err := f.ProveBatch(addHashes[:nDels])
+	bp, err := f.ProveBatch(leavesToProve)
 	if err != nil {
 		return err
 	}
 	// check block proof.  Note this doesn't delete anything, just proves inclusion
-	worked, _, _ := verifyBatchProof(bp, f.getRoots(), f.numLeaves, nil)
+	worked, _, _ := verifyBatchProof(leavesToProve, bp, f.getRoots(), f.numLeaves, nil)
 	//	worked := f.VerifyBatchProof(bp)
 
 	if !worked {
@@ -440,7 +442,7 @@ func TestSmallRandomForests(t *testing.T) {
 				t.Fatalf("proveblock failed proving existing leaf: %v", err)
 			}
 
-			if !(f.VerifyBatchProof(blockProof)) {
+			if !(f.VerifyBatchProof([]Hash{chosenUndeletedLeaf.Hash}, blockProof)) {
 				t.Fatal("verifyblockproof failed verifying proof for existing leaf")
 			}
 		}
