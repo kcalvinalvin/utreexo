@@ -19,16 +19,31 @@ import (
 // parent last, overwriting whatever the add pass left at that position, so the
 // masking of deleted leaves carries all the way to the roots.
 //
+// numLeaves is the forest's cumulative leaf count as of the block whose proof
+// is being generated. The roots are laid out over exactly this count, so the
+// caller passes the value captured right after that block's Record rather than
+// reading the live f.NumLeaves, which the record stage may already have
+// advanced for later blocks.
+//
 // pendingDels must be deletion positions Record returned, each passed to
-// exactly one successful RehashAndProve call: the forest counts recorded
-// deletions awaiting their masking walk to know when the interior hashes are
-// fully caught up, and the count stays accurate only under that pairing. A
-// call that returns an error consumes nothing — pass the same pendingDels
-// again once the fault is cleared; re-running the walk overwrites its earlier
-// partial writes with the same values.
-func (f *Forest) RehashAndProve(pendingDels []uint64) ([]Hash, uint64, Proof, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
+// exactly one successful RehashAndProve call. RehashAndProve sets their deleted
+// bits at the start of the pass and masks them as it walks, so the bitmap
+// reflects exactly the blocks rehashed so far and a later block's deletions
+// never bias this one. The forest counts these deletions awaiting their masking
+// walk to know when the interior hashes are fully caught up, and the count
+// stays accurate only under that one-call pairing. A call that returns an error
+// consumes nothing. Pass the same pendingDels again once the fault is cleared,
+// and re-running the walk overwrites its earlier partial writes with the same
+// values.
+func (f *Forest) RehashAndProve(numLeaves uint64, pendingDels []uint64) ([]Hash, uint64, Proof, error) {
+	// A read lock, not the write lock: this pass and a concurrent Record touch
+	// disjoint forest state. This pass owns the bitmap, the interior rows and
+	// the generated-leaves counters; Record owns positionMap, the leaf row and
+	// NumLeaves. The cache mutex and pipelineMu cover what both reach. Only one
+	// generate stage runs at a time, so the pass-owned fields need no extra
+	// guard here.
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 
 	// Interior hashes are rewritten below; keep the generated-leaves slot
 	// cleared until the pass completes so an error return cannot leave a
@@ -37,7 +52,26 @@ func (f *Forest) RehashAndProve(pendingDels []uint64) ([]Hash, uint64, Proof, er
 		return nil, 0, Proof{}, fmt.Errorf("clear generated leaves: %w", err)
 	}
 
-	totalLeaves := f.NumLeaves
+	// Mark this block's deletions at the moment its proof pass runs. Record
+	// leaves the bitmap untouched, so a block's bits become visible exactly
+	// here, both for the add pass that masks created-then-spent leaves and for
+	// the deletion walk below. The set is idempotent, so a retry after an error
+	// re-marks the same positions harmlessly.
+	for _, pos := range pendingDels {
+		f.deletedLeafPositions.set(pos)
+	}
+
+	// Drop this block's queued deletions now that their bits are set, keeping
+	// the queue bounded to the blocks still awaiting a pass. The front entry is
+	// this block's: Record enqueues in order and the pipeline rehashes in the
+	// same order.
+	f.pipelineMu.Lock()
+	if len(f.deferredDels) > 0 {
+		f.deferredDels = f.deferredDels[1:]
+	}
+	f.pipelineMu.Unlock()
+
+	totalLeaves := numLeaves
 	forestRows := f.forestRows
 
 	fromLeaves := f.lastGeneratedLeaves

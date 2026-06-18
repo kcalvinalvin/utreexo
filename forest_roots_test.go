@@ -170,6 +170,10 @@ func TestProcessAddsParallel(t *testing.T) {
 			}
 
 			prevLeaves := gotForest.NumLeaves
+			// RehashAndProve and HashAll mark the recorded deletions before
+			// rehashing; this white-box test drives processAddsParallel
+			// directly, so it does the same masking setup itself.
+			applyDeferredDels(gotForest)
 			require.NoError(t, gotForest.processAddsParallel(0, prevLeaves, forestRows))
 			gotPrefixRoots, _, err := gotForest.getRoots(prevLeaves)
 			require.NoError(t, err)
@@ -194,6 +198,7 @@ func TestProcessAddsParallel(t *testing.T) {
 			// fromZero covers crash/reopen-style full regeneration. The other
 			// cases cover incremental catch-up from the previously generated
 			// leaf count.
+			applyDeferredDels(gotForest)
 			require.NoError(t, gotForest.processAddsParallel(fromLeaves, gotForest.NumLeaves, forestRows))
 			if tt.expectDels {
 				require.True(t, sawDels, "simchain case should exercise deletions")
@@ -371,7 +376,7 @@ func TestRehashAndProveRootsMatchModify(t *testing.T) {
 		_, delPositions, err := recordForest.Record(addHashes, delHashes)
 		require.NoError(t, err, "block %d", b)
 
-		roots, numLeaves, proof, err := recordForest.RehashAndProve(delPositions)
+		roots, numLeaves, proof, err := recordForest.RehashAndProve(recordForest.NumLeaves, delPositions)
 		require.NoError(t, err, "block %d", b)
 
 		require.Equal(t, modifyForest.NumLeaves, numLeaves, "block %d numLeaves", b)
@@ -425,7 +430,7 @@ func TestRehashAndProvePreservesDeletedRootLeaf(t *testing.T) {
 	require.NoError(t, f.EnterRecordMode())
 	_, delPositions, err := f.Record(nil, hashes[2:3])
 	require.NoError(t, err)
-	_, _, _, err = f.RehashAndProve(delPositions)
+	_, _, _, err = f.RehashAndProve(f.NumLeaves, delPositions)
 	require.NoError(t, err)
 	require.NoError(t, f.ExitRecordMode())
 

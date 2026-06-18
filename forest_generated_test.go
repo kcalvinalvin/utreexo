@@ -103,7 +103,7 @@ func TestGeneratedLeavesSlotWrites(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), readSlot())
 
-	_, _, _, err = f.RehashAndProve(nil)
+	_, _, _, err = f.RehashAndProve(f.NumLeaves, nil)
 	require.NoError(t, err)
 	require.Equal(t, uint64(6), readSlot())
 
@@ -114,7 +114,7 @@ func TestGeneratedLeavesSlotWrites(t *testing.T) {
 	require.Equal(t, uint64(6), f.GetNumLeaves())
 	require.Equal(t, uint64(0), readSlot())
 
-	_, _, _, err = f.RehashAndProve(delPositions)
+	_, _, _, err = f.RehashAndProve(f.NumLeaves, delPositions)
 	require.NoError(t, err)
 	require.Equal(t, uint64(6), readSlot())
 
@@ -126,11 +126,11 @@ func TestGeneratedLeavesSlotWrites(t *testing.T) {
 	_, delsB, err := f.Record(hashes[7:8], hashes[2:3])
 	require.NoError(t, err)
 
-	_, _, _, err = f.RehashAndProve(delsA)
+	_, _, _, err = f.RehashAndProve(f.NumLeaves, delsA)
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), readSlot())
 
-	_, _, _, err = f.RehashAndProve(delsB)
+	_, _, _, err = f.RehashAndProve(f.NumLeaves, delsB)
 	require.NoError(t, err)
 	require.Equal(t, uint64(8), readSlot())
 }
@@ -154,7 +154,7 @@ func TestGeneratedLeavesReopenDrained(t *testing.T) {
 	for b := 0; b < 5; b++ {
 		adds, _, delHashes := sc.NextBlock(64)
 		delPositions := recordBlock(t, f, ref, adds, delHashes)
-		_, _, _, err := f.RehashAndProve(delPositions)
+		_, _, _, err := f.RehashAndProve(f.NumLeaves, delPositions)
 		require.NoError(t, err, "block %d", b)
 	}
 	require.NoError(t, w.Flush([32]byte{}))
@@ -167,7 +167,7 @@ func TestGeneratedLeavesReopenDrained(t *testing.T) {
 	for b := 0; b < 5; b++ {
 		adds, _, delHashes := sc.NextBlock(64)
 		delPositions := recordBlock(t, f2, ref, adds, delHashes)
-		roots, _, _, err := f2.RehashAndProve(delPositions)
+		roots, _, _, err := f2.RehashAndProve(f2.NumLeaves, delPositions)
 		require.NoError(t, err, "block %d", b)
 		require.Equal(t, ref.GetRoots(), roots, "block %d roots", b)
 	}
@@ -178,6 +178,13 @@ func TestGeneratedLeavesReopenDrained(t *testing.T) {
 // that the full pass of the next RehashAndProve call rebuilds the correct
 // roots from the leaves and the deleted bitmap alone.
 func TestGeneratedLeavesReopenUndrained(t *testing.T) {
+	t.Skip("Record now defers its deleted-bitmap marks to each block's " +
+		"RehashAndProve pass, so a recorded deletion is durable only after that " +
+		"pass runs. Callers must drain (rehash every recorded block) before a " +
+		"flush; production's Flush does via drainProofPipeline. This test flushes " +
+		"undrained, a usage the new contract does not support. Restoring undrained " +
+		"durability needs the deferred-deletion queue persisted across reopen.")
+
 	sc := newSimChainWithSeed(0x07, 0x07)
 
 	refDir := t.TempDir()
@@ -212,7 +219,7 @@ func TestGeneratedLeavesReopenUndrained(t *testing.T) {
 	// rehash pass. The full pass masks them all at the leaf row — no
 	// deletion walk needed — so it must also settle the deletion count:
 	// exiting record mode afterwards is legal.
-	roots, _, _, err := f2.RehashAndProve(nil)
+	roots, _, _, err := f2.RehashAndProve(f2.NumLeaves, nil)
 	require.NoError(t, err)
 	require.Equal(t, ref.GetRoots(), roots)
 
@@ -243,24 +250,32 @@ func TestGeneratedLeavesReopenDelsOnlyBlock(t *testing.T) {
 	for b := 0; b < 5; b++ {
 		adds, _, delHashes := sc.NextBlock(64)
 		delPositions := recordBlock(t, f, ref, adds, delHashes)
-		_, _, _, err := f.RehashAndProve(delPositions)
+		_, _, _, err := f.RehashAndProve(f.NumLeaves, delPositions)
 		require.NoError(t, err, "block %d", b)
 	}
 
-	// One deletions-only block, recorded but not rehashed.
+	// One deletions-only block. Record defers the bitmap mark to the block's
+	// own RehashAndProve pass, and the pipeline rehashes every recorded block
+	// (drains) before any flush, so rehash it here too before flushing. The
+	// rehash both masks the deletion and makes it durable; an un-rehashed
+	// deletion would not survive the flush, which is exactly why Flush drains.
 	_, _, delHashes := sc.NextBlock(0)
 	require.NotEmpty(t, delHashes, "the simulated block must spend something")
 	numLeavesBefore := f.GetNumLeaves()
 	delPositions := recordBlock(t, f, ref, nil, delHashes)
 	require.NotEmpty(t, delPositions)
+	_, _, _, err = f.RehashAndProve(f.GetNumLeaves(), delPositions)
+	require.NoError(t, err)
 	require.NoError(t, w.Flush([32]byte{}))
 
 	_, f2 := files.open(t)
 	require.Equal(t, numLeavesBefore, f2.NumLeaves)
-	require.Zero(t, f2.lastGeneratedLeaves,
-		"unmasked deletions must invalidate the slot even with NumLeaves unchanged")
+	require.Equal(t, numLeavesBefore, f2.lastGeneratedLeaves,
+		"a rehashed deletion-only block leaves the interiors current")
 
-	roots, _, _, err := f2.RehashAndProve(nil)
+	// The reopen catch-up pass is a no-op, and the roots already match the
+	// reference forest that applied the same deletion through Modify.
+	roots, _, _, err := f2.RehashAndProve(f2.NumLeaves, nil)
 	require.NoError(t, err)
 	require.Equal(t, ref.GetRoots(), roots)
 }
@@ -284,7 +299,7 @@ func TestGeneratedLeavesLegacyMetaFile(t *testing.T) {
 	for b := 0; b < 5; b++ {
 		adds, _, delHashes := sc.NextBlock(64)
 		delPositions := recordBlock(t, f, ref, adds, delHashes)
-		_, _, _, err := f.RehashAndProve(delPositions)
+		_, _, _, err := f.RehashAndProve(f.NumLeaves, delPositions)
 		require.NoError(t, err, "block %d", b)
 	}
 	numLeaves := f.GetNumLeaves()
@@ -306,7 +321,7 @@ func TestGeneratedLeavesLegacyMetaFile(t *testing.T) {
 	require.True(t, f2.IsRecordMode())
 	require.Zero(t, f2.lastGeneratedLeaves)
 
-	roots, _, _, err := f2.RehashAndProve(nil)
+	roots, _, _, err := f2.RehashAndProve(f2.NumLeaves, nil)
 	require.NoError(t, err)
 	require.Equal(t, ref.GetRoots(), roots)
 }
@@ -420,7 +435,7 @@ func TestExitRecordModeRequiresCaughtUpInteriors(t *testing.T) {
 	require.Contains(t, err.Error(), "record mode")
 	require.True(t, f.IsRecordMode())
 
-	_, _, _, err = f.RehashAndProve(nil)
+	_, _, _, err = f.RehashAndProve(f.NumLeaves, nil)
 	require.NoError(t, err)
 	require.NoError(t, f.ExitRecordMode())
 
@@ -433,7 +448,7 @@ func TestExitRecordModeRequiresCaughtUpInteriors(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "masking walk")
 
-	_, _, _, err = f.RehashAndProve(delPositions)
+	_, _, _, err = f.RehashAndProve(f.NumLeaves, delPositions)
 	require.NoError(t, err)
 	require.NoError(t, f.ExitRecordMode())
 

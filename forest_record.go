@@ -11,8 +11,14 @@ import (
 // when done, to build the tree. It returns add indexes and leaf positions for
 // deleted leaves.
 func (f *Forest) Record(adds []Hash, delHashes []Hash) ([]int32, []uint64, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
+	// A read lock, not the write lock: Record and RehashAndProve touch disjoint
+	// forest state (Record owns positionMap, the leaf row and NumLeaves; the
+	// pass owns the bitmap, the interior rows and the generated-leaves counters)
+	// so they run concurrently. The cache mutex and pipelineMu cover the few
+	// structures both reach. The write lock stays for the exclusive paths
+	// (Modify, Undo, HashAll, Flush) that must not overlap the pipeline.
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 
 	if !f.recordMode {
 		return nil, nil, fmt.Errorf("cannot call Record outside record mode; call EnterRecordMode first")
@@ -50,7 +56,6 @@ func (f *Forest) Record(adds []Hash, delHashes []Hash) ([]int32, []uint64, error
 		hashWg.Wait()
 		return nil, nil, err
 	}
-	f.unmaskedDels += uint64(len(delPositions))
 
 	if len(adds) > 0 {
 		batch, err := f.positionMap.BeginBatch(uint64(len(adds)))
@@ -72,7 +77,9 @@ func (f *Forest) Record(adds []Hash, delHashes []Hash) ([]int32, []uint64, error
 	if hashErr != nil {
 		return nil, nil, hashErr
 	}
+	f.pipelineMu.Lock()
 	f.NumLeaves += uint64(len(adds))
+	f.pipelineMu.Unlock()
 
 	if err := f.appendBlockCount(uint32(len(adds))); err != nil {
 		return nil, nil, fmt.Errorf("append block count: %w", err)
@@ -81,13 +88,22 @@ func (f *Forest) Record(adds []Hash, delHashes []Hash) ([]int32, []uint64, error
 	if err := f.saveNumLeaves(); err != nil {
 		return nil, nil, fmt.Errorf("save num leaves: %w", err)
 	}
+
+	// Defer this block's deletions to its own RehashAndProve pass. Marking
+	// them now would let a later block's record leak deletions into an earlier
+	// block's proof. The queue also lets HashAll mask every recorded deletion.
+	f.pipelineMu.Lock()
+	f.deferredDels = append(f.deferredDels, delPositions)
+	f.pipelineMu.Unlock()
+
 	return addIndexes, delPositions, nil
 }
 
 // processDeletions looks up each delHash in positionMap to produce its addIndex
-// and leaf position, then marks each position in the deletedLeafPositions
-// bitmap. The Get fan-out runs in parallel above minParallelSize; the bitmap
-// updates are serial since deletedBitmap.set is not concurrency-safe.
+// and leaf position. The Get fan-out runs in parallel above minParallelSize.
+// It does not mark the deleted bitmap: RehashAndProve sets the bits for the
+// positions it is given, so a block's deletions become visible exactly when
+// its proof pass runs and never leak into an earlier block's pass.
 func (f *Forest) processDeletions(delHashes []Hash) ([]int32, []uint64, error) {
 	addIndexes := make([]int32, len(delHashes))
 	delPositions := make([]uint64, len(delHashes))
@@ -130,9 +146,6 @@ func (f *Forest) processDeletions(delHashes []Hash) ([]int32, []uint64, error) {
 		}
 	}
 
-	for _, pos := range delPositions {
-		f.deletedLeafPositions.set(pos)
-	}
 	return addIndexes, delPositions, nil
 }
 

@@ -309,15 +309,31 @@ type Forest struct {
 	// masking walk never ran. Guarded by f.mu.
 	lastGeneratedLeaves uint64
 
-	// unmaskedDels counts deletions Record has marked in the deleted bitmap
-	// whose masking walk has not yet run. An incremental RehashAndProve masks
-	// the pendingDels it is given and subtracts them; a pass from the first
-	// leaf — or HashAll — masks every deleted leaf at the leaf row and zeroes
-	// the count outright, including positions never passed in. The count is
-	// zero exactly when the interior hashes already reflect the bitmap; while
-	// it is nonzero they do not, and saveGeneratedLeaves keeps the
-	// generated-leaves slot at zero. Guarded by f.mu.
+	// unmaskedDels counts deletions whose masking walk has not yet run. In
+	// record mode the masking is deferred to RehashAndProve, which sets each
+	// block's bits at the start of its own pass, so this stays zero between
+	// passes and deferredDels is the live tracker of pending deletions. A pass
+	// from the first leaf, or HashAll, masks every deleted leaf at the leaf row
+	// and zeroes the count outright. Guarded by f.mu.
 	unmaskedDels uint64
+
+	// deferredDels holds, in record order, the deletion positions each Record
+	// produced but did not yet mark in the bitmap. RehashAndProve sets and
+	// drops the front entry as it rehashes that block, so a block's deletions
+	// become visible to its own pass and never to an earlier one. HashAll
+	// drains the whole queue before rebuilding. The queue length tracks the
+	// blocks recorded but not yet rehashed, so it stays bounded by the
+	// pipeline's depth. Guarded by pipelineMu.
+	deferredDels [][]uint64
+
+	// pipelineMu guards the two fields that the record stage and the generate
+	// stage touch concurrently while both hold f.mu.RLock: NumLeaves (record
+	// advances it, generate reads it through interiorsCurrent) and deferredDels
+	// (record appends, generate pops). Every other field either belongs to a
+	// single stage or is reached only under f.mu's write lock, so this is the
+	// whole of the cross-stage sharing. Held only for the field access, never
+	// across the rehash or positionMap work.
+	pipelineMu sync.Mutex
 
 	// wal is set when created via OpenForest; nil for newForest (test/advanced usage).
 	wal *wal
@@ -790,9 +806,26 @@ func (f *Forest) saveNumLeaves() error {
 
 // interiorsCurrent reports whether every interior hash matches the leaves and
 // the deleted bitmap: the last rehash pass covered all leaves and no recorded
-// deletion is awaiting its masking walk.
+// deletion is awaiting its masking walk. A deletion-only block advances no
+// leaves, so the queue must be drained too, not just the leaf count matched.
 func (f *Forest) interiorsCurrent() bool {
-	return f.lastGeneratedLeaves == f.NumLeaves && f.unmaskedDels == 0
+	// NumLeaves and deferredDels are read under pipelineMu because the record
+	// stage can be advancing them concurrently while a generate-stage call here
+	// holds only f.mu.RLock. lastGeneratedLeaves and unmaskedDels belong to the
+	// generate stage (and to the exclusive callers under f.mu's write lock), so
+	// they need no extra guard.
+	f.pipelineMu.Lock()
+	defer f.pipelineMu.Unlock()
+	return f.interiorsCurrentLocked()
+}
+
+// interiorsCurrentLocked is interiorsCurrent's body. The caller must hold
+// pipelineMu, which lets saveGeneratedLeaves read the current state and
+// NumLeaves under one acquisition rather than reading NumLeaves a second time
+// unguarded.
+func (f *Forest) interiorsCurrentLocked() bool {
+	return f.lastGeneratedLeaves == f.NumLeaves && f.unmaskedDels == 0 &&
+		len(f.deferredDels) == 0
 }
 
 // clearGeneratedLeaves zeroes the generated-leaves slot of the metaFile.
@@ -814,9 +847,13 @@ func (f *Forest) clearGeneratedLeaves() error {
 // lastGeneratedLeaves and the next rehash pass skip the full rebuild.
 func (f *Forest) saveGeneratedLeaves() error {
 	var buf [32]byte
-	if f.interiorsCurrent() {
+	// Hold pipelineMu across the check and the NumLeaves read so the record
+	// stage cannot advance NumLeaves between them, and so the read is guarded.
+	f.pipelineMu.Lock()
+	if f.interiorsCurrentLocked() {
 		binary.LittleEndian.PutUint64(buf[:], f.NumLeaves)
 	}
+	f.pipelineMu.Unlock()
 	// When the parent hashes are not current, buf stays zero, so the slot is
 	// set to zero rather than left untouched. This way the call alone fully
 	// determines the slot's committed value, without relying on a preceding
@@ -851,6 +888,10 @@ func (f *Forest) ReadConsistencyHash() ([32]byte, error) {
 func (f *Forest) GetNumLeaves() uint64 {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
+	// NumLeaves is guarded by pipelineMu while the record stage may be
+	// advancing it concurrently with a generate-stage pass.
+	f.pipelineMu.Lock()
+	defer f.pipelineMu.Unlock()
 	return f.NumLeaves
 }
 
@@ -1667,6 +1708,16 @@ func (f *Forest) HashAll() error {
 		return fmt.Errorf("clear generated leaves: %w", err)
 	}
 	f.lastGeneratedLeaves = 0
+
+	// Mask every deletion recorded but not yet rehashed. Record defers its
+	// bits to the per-block RehashAndProve pass; a full rebuild instead applies
+	// the whole queue here so the rebuilt interiors reflect all of them.
+	for _, dels := range f.deferredDels {
+		for _, pos := range dels {
+			f.deletedLeafPositions.set(pos)
+		}
+	}
+	f.deferredDels = nil
 
 	totalLeaves := f.NumLeaves
 
